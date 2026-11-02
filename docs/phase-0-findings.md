@@ -54,12 +54,9 @@ After the code-review fixes, AT-01 and AT-06 were rerun on the emulator and stil
 - SAF has no compare-and-swap. A sync write that lands between the second read and our write can still be overwritten, but that window is milliseconds. On the S26+ we need to test whether Obsidian Sync ever hits it.
 - `"wt"` truncates the note before writing. If the write fails partway (provider error, process killed), the note can be left empty or cut short. Writing to a sibling temp file and then renaming isn't possible through every provider. Phase 1 should at least keep a copy of the original in app storage until the write is confirmed.
 
-## Still to do on the Galaxy S26+ (needs you)
+## Galaxy S26+ (SM-S947B, One UI 9, API 37)
 
-1. In Obsidian, open the vault switcher and note where the vault lives. If it's under `Documents/` (or another shared-storage folder), SAF can reach it. If it's in Obsidian's app-private storage, SAF can't, and we need to rethink storage (§10).
-2. Build and install: `JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew :app:installDebug` (Samsung Auto Blocker may need turning off first).
-3. Open Vault Tasks → **Choose vault** → choose the vault folder. Check that the scan list contains tasks from nested notes, and that nothing is listed from `.obsidian`.
-4. Add the Vault Tasks widget to the Samsung home screen. Check that it renders and scrolls.
-5. Tap a non-recurring task. In Obsidian, check that only that line changed, and that it syncs to desktop cleanly.
-6. Conflict: edit a task on desktop and let it sync to the phone without refreshing the widget. Tap that task → expect a "Note changed…" toast and the desktop edit kept.
-7. Concurrency: tap a task while Obsidian Sync is actively pulling a change to the same note. Check for lost edits or sync-conflict files.
+- **Vault location:** Obsidian Sync stores the vault in shared storage at `Documents/Physics`, so SAF can reach it and the storage-provider risk in §10 doesn't apply. The vault has 1,271 notes, and grep finds 381 task-like lines in 29+ notes.
+- **Works:** the folder grant, the recursive scan, the widget on the Samsung launcher, and tap-to-complete writing to the note.
+- **Slow first scan:** the scan has no progress indicator and takes noticeably long on the real vault (it wasn't timed before the phone was disconnected). The app now shows "Scanning the vault…" and logs `Scanned N notes, M tasks: listing X ms, reading Y ms` under the `VaultTasks` tag. The widget rescans the whole vault inside a `goAsync` window of about 10 seconds. **In Phase 1, prioritise an index that only re-reads notes whose `COLUMN_LAST_MODIFIED` changed (V-08), with the scan run by WorkManager (N-06).** Use that log on the next connected run to size it.
+- **Not tested by hand:** editing a note while Obsidian Sync is actively writing to it (N-05). The fail-closed checks are covered by unit tests and emulator AT-07. The remaining risk is the millisecond race described under "Remaining write risks".

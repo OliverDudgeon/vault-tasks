@@ -44,6 +44,7 @@ class MainActivity : Activity() {
 
     private fun showScan() {
         val tree = Vault.tree(this) ?: return output.setText("No vault chosen.")
+        output.text = "Scanning the vault…"
         thread {
             val text = try {
                 Vault.scan(this, tree).joinToString("\n") { (path, task) -> "$path:${task.line + 1}  ${task.text}" }

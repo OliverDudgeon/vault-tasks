@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.os.SystemClock
 import android.provider.DocumentsContract.Document
 import android.util.Log
 
@@ -23,13 +24,23 @@ object Vault {
     }
 
     /** Every task in every readable note, as (vault-relative path, task). [Task.file] is the note's document URI. */
-    fun scan(context: Context, tree: Uri): List<Pair<String, Task>> =
-        notes(context, tree).flatMap { (path, uri) ->
+    fun scan(context: Context, tree: Uri): List<Pair<String, Task>> {
+        val start = SystemClock.elapsedRealtime()
+        val notes = notes(context, tree)
+        val listed = SystemClock.elapsedRealtime()
+        val tasks = notes.flatMap { (path, uri) ->
             val content = runCatching { read(context, uri) }
                 .onFailure { Log.w("VaultTasks", "Skipping unreadable note $path", it) }
                 .getOrNull() ?: return@flatMap emptyList()
             parseTasks(uri.toString(), content).map { path to it }
         }
+        Log.i(
+            "VaultTasks",
+            "Scanned ${notes.size} notes, ${tasks.size} tasks: listing ${listed - start} ms, " +
+                "reading ${SystemClock.elapsedRealtime() - listed} ms",
+        )
+        return tasks
+    }
 
     // One query per folder; DocumentFile.listFiles() costs extra queries per file. Skips dot-folders (.obsidian, .trash).
     private fun notes(context: Context, tree: Uri): List<Pair<String, Uri>> {
