@@ -8,8 +8,14 @@ import java.io.ObjectOutputStream
 
 enum class Theme { SYSTEM, LIGHT, DARK }
 
-/** How a widget shows its tasks (W-07): [dates] is priority and dates, [path] the note's path. */
-data class Look(val dates: Boolean = true, val path: Boolean = true, val compact: Boolean = false, val theme: Theme = Theme.SYSTEM)
+/** How a widget shows its tasks (W-07): [dates] is priority and dates, [path] the note's path, [group] its headings. */
+data class Look(
+    val dates: Boolean = true,
+    val path: Boolean = true,
+    val compact: Boolean = false,
+    val theme: Theme = Theme.SYSTEM,
+    val group: GroupBy = GroupBy.NONE,
+)
 
 /** App-private state: saved filters, which filter each widget shows and how, the task index cache and the last scan status. */
 object Store {
@@ -37,12 +43,13 @@ object Store {
         prefs(context).edit().putString("widget.$widgetId", filterId).apply()
 
     fun look(context: Context, widgetId: Int): Look =
-        prefs(context).getString("look.$widgetId", null)?.split(",")?.let { (dates, path, compact, theme) ->
-            Look(dates.toBoolean(), path.toBoolean(), compact.toBoolean(), Theme.valueOf(theme))
+        prefs(context).getString("look.$widgetId", null)?.split(",")?.let { fields ->
+            val (dates, path, compact, theme) = fields
+            Look(dates.toBoolean(), path.toBoolean(), compact.toBoolean(), Theme.valueOf(theme), GroupBy.valueOf(fields.getOrElse(4) { "NONE" }))
         } ?: Look()
 
     fun setLook(context: Context, widgetId: Int, look: Look) = with(look) {
-        prefs(context).edit().putString("look.$widgetId", "$dates,$path,$compact,$theme").apply()
+        prefs(context).edit().putString("look.$widgetId", "$dates,$path,$compact,$theme,$group").apply()
     }
 
     fun forgetWidgets(context: Context, widgetIds: IntArray) =

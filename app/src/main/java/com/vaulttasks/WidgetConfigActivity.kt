@@ -20,6 +20,7 @@ class WidgetConfigActivity : AppCompatActivity() {
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var filters = emptyList<Filter>()
     private val themes = listOf(R.id.theme_system, R.id.theme_light, R.id.theme_dark)
+    private val groups = listOf(R.id.group_none, R.id.group_note, R.id.group_folder, R.id.group_agenda)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -37,10 +38,17 @@ class WidgetConfigActivity : AppCompatActivity() {
         val path = findViewById<MaterialSwitch>(R.id.show_path).apply { isChecked = look.path }
         val compact = findViewById<MaterialSwitch>(R.id.compact).apply { isChecked = look.compact }
         val theme = findViewById<MaterialButtonToggleGroup>(R.id.theme).apply { check(themes[look.theme.ordinal]) }
+        val group = findViewById<MaterialButtonToggleGroup>(R.id.group).apply { check(groups[look.group.ordinal]) }
         findViewById<View>(R.id.done).setOnClickListener {
             val choice = findViewById<RadioGroup>(R.id.filters).checkedRadioButtonId
             filters.getOrNull(choice - 1)?.let { Store.setWidgetFilter(this, widgetId, it.id) }
-            Store.setLook(this, widgetId, Look(dates.isChecked, path.isChecked, compact.isChecked, Theme.entries[themes.indexOf(theme.checkedButtonId)]))
+            Store.setLook(
+                this, widgetId,
+                Look(
+                    dates.isChecked, path.isChecked, compact.isChecked, Theme.entries[themes.indexOf(theme.checkedButtonId)],
+                    GroupBy.entries[groups.indexOf(group.checkedButtonId)],
+                ),
+            )
             RefreshJob.request(this)
             setResult(RESULT_OK, result)
             finish()
