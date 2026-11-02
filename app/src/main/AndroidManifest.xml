@@ -21,8 +21,25 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
+        <!-- Exported for the launcher to start when a widget is added or reconfigured. Its own task, so
+             finishing it from a widget tap returns to the home screen, not the app. -->
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".WidgetActionReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".RefreshJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

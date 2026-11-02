@@ -71,12 +71,30 @@ class CompleteTaskTest {
     }
 
     @Test
-    fun `stamps the done date before a trailing block id so links to the block survive`() {
+    fun `stamps the done date before a trailing block id and keeps trailing whitespace`() {
         val task = Task("t.md", 0, "- [ ] Order supplies 📅 2026-11-06 ^supplies  ")
 
         assertEquals(
-            Completed("- [x] Order supplies 📅 2026-11-06 ✅ 2026-11-02 ^supplies"),
+            Completed("- [x] Order supplies 📅 2026-11-06 ✅ 2026-11-02 ^supplies  "),
             completeTask(task.text, task, today),
         )
+    }
+
+    @Test
+    fun `completes the scanned one of two identical tasks while the note is unchanged`() {
+        val note = "## Monday\n- [ ] Water plants\n## Thursday\n- [ ] Water plants\n"
+        val thursday = parseTasks("t.md", note)[1]
+
+        assertEquals(
+            Completed("## Monday\n- [ ] Water plants\n## Thursday\n- [x] Water plants ✅ 2026-11-02\n"),
+            completeTask(note, thursday, today),
+        )
+    }
+
+    @Test
+    fun `completes an in-progress task`() {
+        val task = Task("t.md", 0, "- [/] Write report")
+
+        assertEquals(Completed("- [x] Write report ✅ 2026-11-02"), completeTask(task.text, task, today))
     }
 }
