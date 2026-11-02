@@ -2,6 +2,8 @@
 <!-- updatePeriodMillis=0: refresh on demand only (N-07). -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:configure="com.vaulttasks.WidgetConfigActivity"
+    android:description="@string/widget_description"
+    android:previewLayout="@layout/widget_preview"
     android:initialLayout="@layout/widget"
     android:minWidth="250dp"
     android:minHeight="180dp"

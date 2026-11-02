@@ -89,10 +89,9 @@ class RefreshJob : JobService() {
             Store.saveIndex(context, index)
             val unreadable = listing.size - index.size
             val status = "${listing.size} notes, ${index.values.sumOf { it.tasks.size }} tasks" +
-                (if (unreadable > 0) ", $unreadable notes unreadable (see the VaultTasks log)" else "") + " " +
-                "(listing ${listed - start} ms, reading ${SystemClock.elapsedRealtime() - listed} ms)"
-            Log.i("VaultTasks", "Scanned $status")
-            Store.setStatus(context, "Scanned at ${LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))}: $status")
+                (if (unreadable > 0) ", $unreadable notes unreadable (see the VaultTasks log)" else "")
+            Log.i("VaultTasks", "Scanned $status (listing ${listed - start} ms, reading ${SystemClock.elapsedRealtime() - listed} ms)")
+            Store.setStatus(context, "$status · scanned at ${LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))}")
             index
         }.recoverCatching { e ->
             Log.w("VaultTasks", "Scan failed", e)

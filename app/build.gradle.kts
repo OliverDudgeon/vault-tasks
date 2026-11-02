@@ -17,5 +17,7 @@ android {
 }
 
 dependencies {
+    // Material 3 views with Material You dynamic colour, for the app's own screens (Apache-2.0).
+    implementation("com.google.android.material:material:1.14.0")
     testImplementation("junit:junit:4.13.2")
 }
