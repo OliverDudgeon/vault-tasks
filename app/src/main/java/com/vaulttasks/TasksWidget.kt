@@ -16,59 +16,75 @@ import android.widget.Toast
 import java.time.LocalDate
 import kotlin.concurrent.thread
 
-/** Lists every open task in the vault. ponytail: one unfiltered list; per-widget saved filters are Phase 1. */
+/** A list of the vault's tasks matching the saved filter chosen for each widget instance. */
 class TasksWidget : AppWidgetProvider() {
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
-        inBackground { render(context, manager, ids) }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = RefreshJob.request(context)
+
+    override fun onDeleted(context: Context, ids: IntArray) = Store.forgetWidgets(context, ids)
 
     companion object {
-        fun refreshAll(context: Context) {
+        /** Draws every widget from [index], or its error. */
+        fun renderAll(context: Context, index: Result<Map<String, IndexedNote>>) {
             val manager = AppWidgetManager.getInstance(context)
-            render(context, manager, manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java)))
+            val notes = index.getOrDefault(emptyMap())
+            val tasks = notes.values.flatMap { it.tasks }
+            for (id in manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java))) {
+                val filter = Store.widgetFilter(context, id)
+                val views = RemoteViews(context.packageName, R.layout.widget)
+                views.setTextViewText(R.id.refresh, "${filter?.name ?: "Vault Tasks"}  ⟳")
+                views.setOnClickPendingIntent(R.id.refresh, broadcast(context, Intent(ACTION_REFRESH), PendingIntent.FLAG_IMMUTABLE))
+
+                val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(1)
+                for (task in filter?.select(tasks, LocalDate.now()).orEmpty()) items.addItem(
+                    "${task.file}#${task.line}".hashCode().toLong(),
+                    row(context, task, notes[task.file]?.path),
+                )
+                views.setRemoteAdapter(R.id.list, items.build())
+                views.setPendingIntentTemplate(
+                    R.id.list,
+                    broadcast(context, Intent(), PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
+                )
+
+                // Empty states say what's wrong and tapping them goes where it can be fixed (W-05).
+                views.setEmptyView(R.id.list, R.id.empty)
+                val error = index.exceptionOrNull()
+                views.setTextViewText(
+                    R.id.empty,
+                    error?.message ?: if (filter == null) "No filter chosen. Tap to choose one." else "No matching tasks",
+                )
+                val fix = when {
+                    error != null -> Intent(context, MainActivity::class.java)
+                    filter == null -> Intent(context, WidgetConfigActivity::class.java)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                    else -> null
+                }
+                views.setOnClickPendingIntent(
+                    R.id.empty,
+                    fix?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) },
+                )
+                manager.updateAppWidget(id, views)
+            }
         }
 
-        private fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            val tree = Vault.tree(context)
-            val (tasks, emptyText) = when (tree) {
-                null -> emptyList<Pair<String, Task>>() to "Open Vault Tasks and choose a vault"
-                else -> try {
-                    Vault.scan(context, tree).filter { it.second.isOpen } to "No open tasks"
-                } catch (e: Exception) {
-                    Log.w("VaultTasks", "Scan failed", e)
-                    emptyList<Pair<String, Task>>() to "Can't read vault (${e.message}). Open Vault Tasks to choose it again."
-                }
-            }
-            val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(1)
-            for ((path, task) in tasks) {
-                val item = RemoteViews(context.packageName, R.layout.widget_item)
-                item.setTextViewText(R.id.text, task.text.substringAfter("] "))
-                item.setTextViewText(R.id.path, "$path:${task.line + 1}")
-                item.setOnClickFillInIntent(
-                    R.id.item,
-                    Intent().putExtra("file", task.file).putExtra("line", task.line).putExtra("text", task.text),
-                )
-                items.addItem("${task.file}#${task.line}".hashCode().toLong(), item)
-            }
-            val views = RemoteViews(context.packageName, R.layout.widget)
-            views.setRemoteAdapter(R.id.list, items.build())
-            views.setEmptyView(R.id.list, R.id.empty)
-            views.setTextViewText(R.id.empty, emptyText)
-            views.setPendingIntentTemplate(
-                R.id.list,
-                PendingIntent.getBroadcast(
-                    context, 0, Intent(context, WidgetActionReceiver::class.java),
-                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                ),
+        private fun row(context: Context, task: Task, path: String?) = RemoteViews(context.packageName, R.layout.widget_item).apply {
+            setTextViewText(R.id.check, if (task.done) "☑" else "☐")
+            setTextViewText(R.id.text, task.description)
+            val meta = listOfNotNull(
+                task.priority.emoji.ifEmpty { null },
+                task.due?.let { "📅 $it" },
+                "🔁".takeIf { task.recurring },
+                path,
             )
-            views.setOnClickPendingIntent(
-                R.id.refresh,
-                PendingIntent.getBroadcast(
-                    context, 0, Intent(context, WidgetActionReceiver::class.java).setAction(ACTION_REFRESH),
-                    PendingIntent.FLAG_IMMUTABLE,
-                ),
+            setTextViewText(R.id.meta, meta.joinToString("  "))
+            if (!task.done) setOnClickFillInIntent(
+                R.id.check,
+                Intent().putExtra("file", task.file).putExtra("line", task.line).putExtra("text", task.text)
+                    .putExtra("noteHash", task.noteHash),
             )
-            manager.updateAppWidget(ids, views)
         }
+
+        private fun broadcast(context: Context, intent: Intent, flags: Int) =
+            PendingIntent.getBroadcast(context, 0, intent.setClass(context, WidgetActionReceiver::class.java), flags)
     }
 }
 
@@ -76,38 +92,38 @@ private const val ACTION_REFRESH = "com.vaulttasks.REFRESH"
 
 /** Widget taps: complete a task, or refresh. Not exported, so only our own PendingIntents can make it write. */
 class WidgetActionReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = inBackground {
-        if (intent.action != ACTION_REFRESH) try {
-            complete(context, intent)
-        } catch (e: Exception) {
-            Log.w("VaultTasks", "Complete failed", e)
-            toast(context, "Couldn't complete the task: ${e.message}")
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_REFRESH) return RefreshJob.request(context)
+        val pending = goAsync()
+        thread {
+            try {
+                complete(context, intent)
+            } catch (e: Exception) {
+                Log.w("VaultTasks", "Complete failed", e)
+                toast(context, "Couldn't complete the task: ${e.message}")
+            } finally {
+                RefreshJob.request(context)
+                pending.finish()
+            }
         }
-        TasksWidget.refreshAll(context)
     }
 
     private fun complete(context: Context, intent: Intent) {
-        val task = Task(intent.getStringExtra("file")!!, intent.getIntExtra("line", -1), intent.getStringExtra("text")!!)
+        val task = Task(
+            intent.getStringExtra("file")!!, intent.getIntExtra("line", -1), intent.getStringExtra("text")!!,
+            intent.getIntExtra("noteHash", 0),
+        )
         val note = Uri.parse(task.file)
-        val result = completeInNote(task, LocalDate.now(), { Vault.read(context, note) }, { Vault.write(context, note, it) })
+        val result = completeInNote(
+            task, LocalDate.now(),
+            read = { Vault.read(context, note) },
+            write = { before, after -> Vault.write(context, note, before, after) },
+        )
         Log.i("VaultTasks", "Complete line ${task.line + 1}: ${result::class.simpleName}")
         when (result) {
             is Completed -> {}
-            Conflict -> toast(context, "Note changed since the last scan, or the task appears twice. Nothing was written.")
+            Conflict -> toast(context, "The note changed since the last scan. Nothing was written; refreshing.")
             Unsupported -> toast(context, "Complete recurring tasks in Obsidian for now.")
-        }
-    }
-}
-
-// ponytail: goAsync gives ~10 s, and every refresh rescans the whole vault; move to WorkManager plus a cached
-// index (N-06) once real vaults get near that.
-private fun BroadcastReceiver.inBackground(work: () -> Unit) {
-    val pending = goAsync()
-    thread {
-        try {
-            work()
-        } finally {
-            pending.finish()
         }
     }
 }

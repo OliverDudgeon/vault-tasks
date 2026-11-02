@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- updatePeriodMillis=0: refresh on demand only (N-07). -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="com.vaulttasks.WidgetConfigActivity"
     android:initialLayout="@layout/widget"
     android:minWidth="250dp"
     android:minHeight="180dp"
@@ -8,4 +9,5 @@
     android:targetCellHeight="3"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable" />
