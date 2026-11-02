@@ -54,15 +54,23 @@ object Store {
 
     private fun indexFile(context: Context) = File(context.filesDir, "index.bin")
 
-    // ponytail: Java serialization; any class change fails the read and costs one full rescan, which is fine for a cache.
+    // Java serialization. A changed Task class can still deserialize, leaving new fields null, so the cache is only
+    // trusted from the build that wrote it: an app update costs one full rescan, which is fine for a cache.
+    private fun build(context: Context) = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+
     @Suppress("UNCHECKED_CAST")
-    fun index(context: Context): Map<String, IndexedNote> =
-        runCatching { ObjectInputStream(indexFile(context).inputStream()).use { it.readObject() as Map<String, IndexedNote> } }
-            .getOrDefault(emptyMap())
+    fun index(context: Context): Map<String, IndexedNote> = runCatching {
+        ObjectInputStream(indexFile(context).inputStream()).use {
+            if (it.readLong() == build(context)) it.readObject() as Map<String, IndexedNote> else emptyMap()
+        }
+    }.getOrDefault(emptyMap())
 
     fun saveIndex(context: Context, index: Map<String, IndexedNote>) {
         val temp = File(context.filesDir, "index.tmp")
-        ObjectOutputStream(temp.outputStream()).use { it.writeObject(HashMap(index)) }
+        ObjectOutputStream(temp.outputStream()).use {
+            it.writeLong(build(context))
+            it.writeObject(HashMap(index))
+        }
         temp.renameTo(indexFile(context))
     }
 }
