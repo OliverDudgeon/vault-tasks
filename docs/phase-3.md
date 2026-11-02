@@ -52,3 +52,14 @@ Behaviour follows the obsidian-tasks source on `main` (2 November 2026): `Recurr
   - a picker preview and description
 - **Launcher icon:** adaptive, with a monochrome layer for themed icons.
 - **Licence (N-02):** Material Components and the AndroidX libraries it brings in are Apache-2.0, which is compatible with GPL-3.0-or-later. This replaces Phase 1's "only the Kotlin standard library".
+
+## Grouping and agenda (W-10)
+
+- Each widget can group its tasks under headings (`Groups.kt`, chosen in the widget's configure screen):
+  - **None**
+  - **Note:** the note's name, with its folder beside it
+  - **Folder:** "Vault root" for the top level
+  - **Agenda:** only tasks with a due date, under the day they're due ("Today · Mon 2 Nov"). Past days are in the error colour.
+- Notes and folders are sorted by path. Days run earliest first. Within a group, tasks keep the filter's order.
+- Each heading shows its task count. Rows leave out what the heading already says: the due date in the agenda, the path when grouped by note, and the folder when grouped by folder.
+- Grouping is per widget, so one filter can be shown flat in one widget and as an agenda in another. The query box still ignores `group by` lines.

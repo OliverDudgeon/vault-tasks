@@ -59,12 +59,19 @@ class TasksWidget : AppWidgetProvider() {
                 views.setTextViewText(R.id.title, filter?.name ?: context.getString(R.string.app_name))
                 views.setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
 
-                val selected = runCatching { filter?.select(tasks, today) { notes[it.file]?.path ?: it.file }.orEmpty() }
-                val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(1)
-                for (task in selected.getOrDefault(emptyList())) items.addItem(
-                    "${task.file}#${task.line}".hashCode().toLong(),
-                    row(context, task, notes[task.file]?.path, look, paint, today),
-                )
+                val path = { t: Task -> notes[t.file]?.path ?: t.file }
+                val selected = runCatching { filter?.select(tasks, today, path).orEmpty() }
+                val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(2)
+                for (group in groupTasks(selected.getOrDefault(emptyList()), look.group, today, path)) {
+                    if (group.title != null) items.addItem(
+                        "group:${group.title}:${group.detail}".hashCode().toLong(),
+                        header(context, group, paint, today),
+                    )
+                    for (task in group.tasks) items.addItem(
+                        "${task.file}#${task.line}".hashCode().toLong(),
+                        row(context, task, path(task), look, paint, today),
+                    )
+                }
                 views.setRemoteAdapter(R.id.list, items.build())
                 views.setPendingIntentTemplate(
                     R.id.list,
@@ -76,7 +83,11 @@ class TasksWidget : AppWidgetProvider() {
                 val error = index.exceptionOrNull()?.message ?: selected.exceptionOrNull()?.let { "${it.message}. Tap to edit the filter." }
                 views.setTextViewText(
                     R.id.empty_text,
-                    error ?: if (filter == null) "No filter chosen. Tap to choose one." else "All clear. No matching tasks.",
+                    error ?: when {
+                        filter == null -> "No filter chosen. Tap to choose one."
+                        look.group == GroupBy.AGENDA -> "All clear. No matching tasks with due dates."
+                        else -> "All clear. No matching tasks."
+                    },
                 )
                 views.setImageViewResource(R.id.empty_icon, if (error != null) R.drawable.ic_warning else R.drawable.ic_task_alt)
                 if (error != null) paint.color(views, R.id.empty_icon, "setColorFilter", R.color.widget_error)
@@ -94,7 +105,20 @@ class TasksWidget : AppWidgetProvider() {
             }
         }
 
-        private fun row(context: Context, task: Task, path: String?, look: Look, paint: Painter, today: LocalDate) =
+        /** A group's heading: agenda days that have passed are in the error colour. */
+        private fun header(context: Context, group: Group, paint: Painter, today: LocalDate) =
+            RemoteViews(context.packageName, R.layout.widget_header).apply {
+                setTextViewText(R.id.header_title, group.title)
+                setTextViewText(R.id.header_detail, group.detail.orEmpty())
+                setTextViewText(R.id.header_count, "${group.tasks.size}")
+                setContentDescription(R.id.header, listOfNotNull(group.title, group.detail, "${group.tasks.size} tasks").joinToString(", "))
+                val overdue = group.date != null && group.date < today
+                paint.color(this, R.id.header_title, "setTextColor", if (overdue) R.color.widget_error else R.color.widget_primary)
+                paint.color(this, R.id.header_detail, "setTextColor", if (overdue) R.color.widget_error else R.color.widget_on_surface_variant)
+                paint.color(this, R.id.header_count, "setTextColor", R.color.widget_on_surface_variant)
+            }
+
+        private fun row(context: Context, task: Task, path: String, look: Look, paint: Painter, today: LocalDate) =
             RemoteViews(context.packageName, R.layout.widget_item).apply {
                 val (icon, label) = when (task.type) {
                     StatusType.TODO -> R.drawable.ic_todo to "Complete task"
@@ -120,7 +144,8 @@ class TasksWidget : AppWidgetProvider() {
                     paint.color(this, R.id.priority, "setColorFilter", flag)
                     setContentDescription(R.id.priority, "${task.priority.name.lowercase().replaceFirstChar(Char::uppercase)} priority")
                 }
-                val due = task.due?.takeIf { look.dates }
+                // Under a heading, rows leave out what it already says.
+                val due = task.due?.takeIf { look.dates && look.group != GroupBy.AGENDA }
                 setTextViewText(R.id.due, due?.let { friendlyDate(it, today) }.orEmpty())
                 setViewVisibility(R.id.due, if (due == null) View.GONE else View.VISIBLE)
                 paint.color(
@@ -135,7 +160,11 @@ class TasksWidget : AppWidgetProvider() {
                 val meta = listOfNotNull(
                     task.scheduled?.let { "Scheduled ${friendlyDate(it, today)}" }.takeIf { look.dates },
                     "Repeats ${task.recurrence.orEmpty()}".trimEnd().takeIf { task.recurring },
-                    path?.removeSuffix(".md").takeIf { look.path },
+                    when (look.group) {
+                        GroupBy.NOTE -> null
+                        GroupBy.FOLDER -> path.substringAfterLast("/")
+                        else -> path
+                    }?.removeSuffix(".md")?.takeIf { look.path },
                 )
                 setTextViewText(R.id.meta, meta.joinToString(" · "))
                 paint.color(this, R.id.meta, "setTextColor", R.color.widget_on_surface_variant)
