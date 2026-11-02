@@ -36,3 +36,19 @@ Behaviour follows the obsidian-tasks source on `main` (2 November 2026): `Recurr
 - **Queries:** `heading` filters (no heading context is kept, per the Phase 1 decision), `filter by function`, `sort by urgency`, chrono's natural-language dates ("next friday"), and `[]`/`{}`/`""` boolean delimiters.
 - **Q-10** shows a live count, not a list of the matching tasks. **W-09:** the newer filters (tags, scheduled and start dates, status type) are reachable only through the query box, not the guided controls.
 - **Links** are styled but can't be tapped, because a widget list row takes one tap target per view.
+
+## Material You (after Phase 3)
+
+- **App and widget configure screens** use Material Components 1.14 (`Theme.Material3.DynamicColors.DayNight`), so they take the wallpaper's colours and follow dark mode. They have:
+  - a large top app bar, the vault in a tonal card, and the filters as cards with a one-line summary
+  - an extended FAB for new filters
+  - the editor in a Material dialog, with exposed dropdowns, toggle buttons and the query error shown on its field
+  - a confirmation before deleting a filter
+- **Widget:** platform resources only, since RemoteViews can't host library views. It uses:
+  - Material 3 colour roles mapped onto the system's dynamic palettes (`res/values*/colors.xml`), resolved for day and night so the theme option still works
+  - the system widget corner radii
+  - vector status icons and a priority flag coloured by level
+  - short due dates ("Today", "Fri"), coloured when the task is due today or overdue (W-08)
+  - a picker preview and description
+- **Launcher icon:** adaptive, with a monochrome layer for themed icons.
+- **Licence (N-02):** Material Components and the AndroidX libraries it brings in are Apache-2.0, which is compatible with GPL-3.0-or-later. This replaces Phase 1's "only the Kotlin standard library".

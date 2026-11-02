@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the widget picker shows; sample tasks, not the vault's. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:clipToOutline="true"
+    android:orientation="vertical"
+    android:padding="8dp">
+    <TextView android:layout_width="match_parent" android:layout_height="48dp" android:fontFamily="sans-serif-medium" android:gravity="center_vertical"
+        android:paddingStart="12dp" android:text="Due today or overdue" android:textColor="@color/widget_primary" android:textSize="16sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="4dp"
+        android:background="@drawable/widget_row" android:gravity="center_vertical" android:orientation="horizontal" android:paddingVertical="6dp" android:paddingEnd="12dp">
+        <ImageView android:layout_width="48dp" android:layout_height="36dp" android:paddingHorizontal="12dp" android:src="@drawable/ic_todo" android:tint="@color/widget_primary" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Review preprint" android:textColor="@color/widget_on_surface" android:textSize="15sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif-medium" android:text="Today" android:textColor="@color/widget_primary" android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="4dp"
+        android:background="@drawable/widget_row" android:gravity="center_vertical" android:orientation="horizontal" android:paddingVertical="6dp" android:paddingEnd="12dp">
+        <ImageView android:layout_width="48dp" android:layout_height="36dp" android:paddingHorizontal="12dp" android:src="@drawable/ic_todo" android:tint="@color/widget_primary" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Order supplies" android:textColor="@color/widget_on_surface" android:textSize="15sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif-medium" android:text="Fri" android:textColor="@color/widget_on_surface_variant" android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="4dp"
+        android:background="@drawable/widget_row" android:gravity="center_vertical" android:orientation="horizontal" android:paddingVertical="6dp" android:paddingEnd="12dp">
+        <ImageView android:layout_width="48dp" android:layout_height="36dp" android:paddingHorizontal="12dp" android:src="@drawable/ic_todo" android:tint="@color/widget_primary" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Weekly review" android:textColor="@color/widget_on_surface" android:textSize="15sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif-medium" android:text="Mon · Repeats every week" android:textColor="@color/widget_on_surface_variant" android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

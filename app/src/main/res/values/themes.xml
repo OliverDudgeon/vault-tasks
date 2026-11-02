@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 with the wallpaper's dynamic colours (Material You). -->
+    <style name="Theme.VaultTasks" parent="Theme.Material3.DynamicColors.DayNight.NoActionBar" />
+</resources>

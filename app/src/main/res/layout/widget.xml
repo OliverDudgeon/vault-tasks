@@ -1,21 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- @android:id/background lets the launcher animate from the widget's shape when opening the app. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/root"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/system_neutral1_50"
+    android:background="@drawable/widget_background"
+    android:clipToOutline="true"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:paddingHorizontal="8dp"
+    android:paddingTop="4dp">
 
-    <TextView
-        android:id="@+id/refresh"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="4dp"
-        android:contentDescription="Refresh Vault Tasks"
-        android:text="Vault Tasks  ⟳"
-        android:textColor="@android:color/system_neutral1_900"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:text="@string/app_name"
+            android:textColor="@color/widget_primary"
+            android:textSize="16sp" />
+
+        <ImageView
+            android:id="@+id/refresh"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Refresh"
+            android:padding="12dp"
+            android:src="@drawable/ic_refresh"
+            android:tint="@color/widget_on_surface_variant" />
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -24,15 +47,38 @@
         <ListView
             android:id="@+id/list"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:divider="@null"
+            android:dividerHeight="0dp"
+            android:paddingBottom="8dp"
+            android:scrollbars="none" />
 
-        <TextView
+        <LinearLayout
             android:id="@+id/empty"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:gravity="center"
-            android:padding="8dp"
-            android:text="Loading…"
-            android:textColor="@android:color/system_neutral1_700" />
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <ImageView
+                android:id="@+id/empty_icon"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_task_alt"
+                android:tint="@color/widget_primary" />
+
+            <TextView
+                android:id="@+id/empty_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="Loading…"
+                android:textColor="@color/widget_on_surface_variant"
+                android:textSize="14sp" />
+        </LinearLayout>
     </FrameLayout>
 </LinearLayout>

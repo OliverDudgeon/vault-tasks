@@ -7,6 +7,8 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
@@ -25,6 +27,10 @@ import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /** A list of the vault's tasks matching the saved filter chosen for each widget instance. */
@@ -39,22 +45,25 @@ class TasksWidget : AppWidgetProvider() {
             val manager = AppWidgetManager.getInstance(context)
             val notes = index.getOrDefault(emptyMap())
             val tasks = notes.values.flatMap { it.tasks }
+            val today = LocalDate.now()
             for (id in manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java))) {
                 val filter = Store.widgetFilter(context, id)
                 val look = Store.look(context, id)
-                val colors = Colors(context, look.theme)
+                val paint = Painter(context, look.theme)
                 val views = RemoteViews(context.packageName, R.layout.widget)
-                colors.tint(views, R.id.root, "setBackgroundColor", colors.background)
-                colors.tint(views, R.id.refresh, "setTextColor", colors.text)
-                colors.tint(views, R.id.empty, "setTextColor", colors.meta)
-                views.setTextViewText(R.id.refresh, "${filter?.name ?: "Vault Tasks"}  ⟳")
+                paint.background(views, android.R.id.background, R.color.widget_background)
+                paint.color(views, R.id.title, "setTextColor", R.color.widget_primary)
+                paint.color(views, R.id.refresh, "setColorFilter", R.color.widget_on_surface_variant)
+                paint.color(views, R.id.empty_icon, "setColorFilter", R.color.widget_primary)
+                paint.color(views, R.id.empty_text, "setTextColor", R.color.widget_on_surface_variant)
+                views.setTextViewText(R.id.title, filter?.name ?: context.getString(R.string.app_name))
                 views.setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
 
-                val selected = runCatching { filter?.select(tasks, LocalDate.now()) { notes[it.file]?.path ?: it.file }.orEmpty() }
+                val selected = runCatching { filter?.select(tasks, today) { notes[it.file]?.path ?: it.file }.orEmpty() }
                 val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(1)
                 for (task in selected.getOrDefault(emptyList())) items.addItem(
                     "${task.file}#${task.line}".hashCode().toLong(),
-                    row(context, task, notes[task.file]?.path, look, colors),
+                    row(context, task, notes[task.file]?.path, look, paint, today),
                 )
                 views.setRemoteAdapter(R.id.list, items.build())
                 views.setPendingIntentTemplate(
@@ -66,9 +75,11 @@ class TasksWidget : AppWidgetProvider() {
                 views.setEmptyView(R.id.list, R.id.empty)
                 val error = index.exceptionOrNull()?.message ?: selected.exceptionOrNull()?.let { "${it.message}. Tap to edit the filter." }
                 views.setTextViewText(
-                    R.id.empty,
-                    error ?: if (filter == null) "No filter chosen. Tap to choose one." else "No matching tasks",
+                    R.id.empty_text,
+                    error ?: if (filter == null) "No filter chosen. Tap to choose one." else "All clear. No matching tasks.",
                 )
+                views.setImageViewResource(R.id.empty_icon, if (error != null) R.drawable.ic_warning else R.drawable.ic_task_alt)
+                if (error != null) paint.color(views, R.id.empty_icon, "setColorFilter", R.color.widget_error)
                 val fix = when {
                     error != null -> Intent(context, MainActivity::class.java)
                     filter == null -> Intent(context, WidgetConfigActivity::class.java)
@@ -83,36 +94,61 @@ class TasksWidget : AppWidgetProvider() {
             }
         }
 
-        private fun row(context: Context, task: Task, path: String?, look: Look, colors: Colors) =
+        private fun row(context: Context, task: Task, path: String?, look: Look, paint: Painter, today: LocalDate) =
             RemoteViews(context.packageName, R.layout.widget_item).apply {
-                setTextViewText(
-                    R.id.check,
-                    when (task.type) {
-                        StatusType.TODO -> "☐"
-                        StatusType.IN_PROGRESS -> "◐"
-                        StatusType.DONE -> "☑"
-                        StatusType.CANCELLED -> "☒"
-                        StatusType.NON_TASK -> "▫"
+                val (icon, label) = when (task.type) {
+                    StatusType.TODO -> R.drawable.ic_todo to "Complete task"
+                    StatusType.IN_PROGRESS -> R.drawable.ic_in_progress to "Complete task, in progress"
+                    StatusType.DONE -> R.drawable.ic_done to "Done"
+                    StatusType.CANCELLED -> R.drawable.ic_cancelled to "Cancelled"
+                    StatusType.NON_TASK -> R.drawable.ic_todo to "Not a task"
+                }
+                setImageViewResource(R.id.check, icon)
+                setContentDescription(R.id.check, label)
+                paint.background(this, R.id.row, R.color.widget_row)
+                paint.color(this, R.id.check, "setColorFilter", if (task.done) R.color.widget_outline else R.color.widget_primary)
+                setTextViewText(R.id.text, styled(context, task))
+                paint.color(this, R.id.text, "setTextColor", if (task.done) R.color.widget_on_surface_variant else R.color.widget_on_surface)
+
+                // Priority as a flag, coloured by level; due as a short date, coloured when it's today or late (W-08).
+                val flag = mapOf(
+                    Priority.HIGHEST to R.color.widget_error, Priority.HIGH to R.color.widget_tertiary,
+                    Priority.MEDIUM to R.color.widget_primary, Priority.LOW to R.color.widget_outline, Priority.LOWEST to R.color.widget_outline,
+                )[task.priority]?.takeIf { look.dates }
+                setViewVisibility(R.id.priority, if (flag == null) View.GONE else View.VISIBLE)
+                if (flag != null) {
+                    paint.color(this, R.id.priority, "setColorFilter", flag)
+                    setContentDescription(R.id.priority, "${task.priority.name.lowercase().replaceFirstChar(Char::uppercase)} priority")
+                }
+                val due = task.due?.takeIf { look.dates }
+                setTextViewText(R.id.due, due?.let { friendlyDate(it, today) }.orEmpty())
+                setViewVisibility(R.id.due, if (due == null) View.GONE else View.VISIBLE)
+                paint.color(
+                    this, R.id.due, "setTextColor",
+                    when {
+                        due == null || task.done -> R.color.widget_on_surface_variant
+                        due < today -> R.color.widget_error
+                        due == today -> R.color.widget_primary
+                        else -> R.color.widget_on_surface_variant
                     },
                 )
-                setTextViewText(R.id.text, styled(context, task))
                 val meta = listOfNotNull(
-                    task.priority.emoji.ifEmpty { null }.takeIf { look.dates },
-                    task.due?.let { "📅 $it" }.takeIf { look.dates },
-                    task.scheduled?.let { "⏳ $it" }.takeIf { look.dates },
-                    "🔁 ${task.recurrence.orEmpty()}".trimEnd().takeIf { task.recurring },
+                    task.scheduled?.let { "Scheduled ${friendlyDate(it, today)}" }.takeIf { look.dates },
+                    "Repeats ${task.recurrence.orEmpty()}".trimEnd().takeIf { task.recurring },
                     path?.removeSuffix(".md").takeIf { look.path },
                 )
-                setTextViewText(R.id.meta, meta.joinToString("  "))
-                setViewVisibility(R.id.meta, if (meta.isEmpty()) View.GONE else View.VISIBLE)
-                colors.tint(this, R.id.check, "setTextColor", colors.text)
-                colors.tint(this, R.id.text, "setTextColor", colors.text)
-                colors.tint(this, R.id.meta, "setTextColor", colors.meta)
+                setTextViewText(R.id.meta, meta.joinToString(" · "))
+                paint.color(this, R.id.meta, "setTextColor", R.color.widget_on_surface_variant)
+                setViewVisibility(R.id.meta_row, if (meta.isEmpty() && flag == null && due == null) View.GONE else View.VISIBLE)
                 if (look.compact) {
                     setTextViewTextSize(R.id.text, TypedValue.COMPLEX_UNIT_SP, 13f)
-                    setTextViewTextSize(R.id.meta, TypedValue.COMPLEX_UNIT_SP, 10f)
-                    setViewLayoutHeight(R.id.check, 32f, TypedValue.COMPLEX_UNIT_DIP)
-                    setViewPadding(R.id.row, 0, 0, 0, 0)
+                    setTextViewTextSize(R.id.due, TypedValue.COMPLEX_UNIT_SP, 11f)
+                    setTextViewTextSize(R.id.meta, TypedValue.COMPLEX_UNIT_SP, 11f)
+                    setViewLayoutHeight(R.id.check, 40f, TypedValue.COMPLEX_UNIT_DIP)
+                    setViewLayoutWidth(R.id.check, 40f, TypedValue.COMPLEX_UNIT_DIP)
+                    val px = (context.resources.displayMetrics.density * 1).toInt()
+                    setViewPadding(R.id.item, 0, px, 0, px)
+                    setViewPadding(R.id.check, 10 * px, 10 * px, 10 * px, 10 * px)
                 }
                 if (!task.done) setOnClickFillInIntent(
                     R.id.check,
@@ -124,7 +160,8 @@ class TasksWidget : AppWidgetProvider() {
         /** The description with its Markdown styles; done and cancelled tasks are struck through, as in Obsidian. */
         private fun styled(context: Context, task: Task): CharSequence {
             val (text, spans) = inlineMarkdown(task.description)
-            val link = context.getColor(android.R.color.system_accent1_500)
+            // Spans can't follow day/night, so links take a mid tone that reads on both.
+            val link = context.getColor(android.R.color.system_accent1_400)
             return SpannableString(text).apply {
                 for (span in spans) {
                     val what: List<Any> = when (span.style) {
@@ -188,17 +225,50 @@ class WidgetActionReceiver : BroadcastReceiver() {
     }
 }
 
-/** Day and night colours for a widget, both one colour if its [Theme] isn't the system's. */
-private class Colors(private val context: Context, private val theme: Theme) {
-    private fun pair(day: Int, night: Int) = context.getColor(day) to context.getColor(night)
-    val background = pair(android.R.color.system_neutral1_50, android.R.color.system_neutral1_900)
-    val text = pair(android.R.color.system_neutral1_900, android.R.color.system_neutral1_50)
-    val meta = pair(android.R.color.system_neutral1_500, android.R.color.system_neutral1_400)
+/**
+ * Paints a widget in its colour roles (res/values and values-night colors.xml), resolved for day and for night so
+ * it can follow the system or force either [Theme].
+ */
+private class Painter(private val context: Context, private val theme: Theme) {
+    private fun at(night: Int) = context.createConfigurationContext(Configuration(context.resources.configuration).apply {
+        uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or night
+    })
+    private val day = at(Configuration.UI_MODE_NIGHT_NO)
+    private val night = at(Configuration.UI_MODE_NIGHT_YES)
 
-    fun tint(views: RemoteViews, id: Int, method: String, colors: Pair<Int, Int>) = when (theme) {
-        Theme.SYSTEM -> views.setColorInt(id, method, colors.first, colors.second)
-        Theme.LIGHT -> views.setInt(id, method, colors.first)
-        Theme.DARK -> views.setInt(id, method, colors.second)
+    private fun pair(color: Int) = day.getColor(color) to night.getColor(color)
+
+    /** Calls [method] on view [id] with [color], an int colour resource. */
+    fun color(views: RemoteViews, id: Int, method: String, color: Int) {
+        val (day, night) = pair(color)
+        when (theme) {
+            Theme.SYSTEM -> views.setColorInt(id, method, day, night)
+            Theme.LIGHT -> views.setInt(id, method, day)
+            Theme.DARK -> views.setInt(id, method, night)
+        }
+    }
+
+    /** Tints view [id]'s background drawable, keeping its rounded shape. */
+    fun background(views: RemoteViews, id: Int, color: Int) {
+        val (day, night) = pair(color).let { (d, n) -> ColorStateList.valueOf(d) to ColorStateList.valueOf(n) }
+        when (theme) {
+            Theme.SYSTEM -> views.setColorStateList(id, "setBackgroundTintList", day, night)
+            Theme.LIGHT -> views.setColorStateList(id, "setBackgroundTintList", day)
+            Theme.DARK -> views.setColorStateList(id, "setBackgroundTintList", night)
+        }
+    }
+}
+
+/** A due or scheduled date as a widget shows it: Yesterday, Today, Tomorrow, a weekday this week, else the date. */
+internal fun friendlyDate(date: LocalDate, today: LocalDate, locale: Locale = Locale.getDefault()): String {
+    val days = ChronoUnit.DAYS.between(today, date)
+    return when {
+        days == -1L -> "Yesterday"
+        days == 0L -> "Today"
+        days == 1L -> "Tomorrow"
+        days in 2..6 -> date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)
+        date.year == today.year -> date.format(DateTimeFormatter.ofPattern("d MMM", locale))
+        else -> date.format(DateTimeFormatter.ofPattern("d MMM yyyy", locale))
     }
 }
 
