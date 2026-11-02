@@ -6,7 +6,11 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -14,6 +18,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import java.time.LocalDate
 
 /** Chooses the vault, shows the last scan, and edits the saved filters that widgets show. */
 class MainActivity : Activity() {
@@ -71,7 +76,7 @@ class MainActivity : Activity() {
         for (filter in Store.filters(this)) filterList.addView(button(filter.name) { edit(filter) })
     }
 
-    /** The filter editor (Q-03 to Q-07). Date choices are spelled out, per the spec's date semantics. */
+    /** The filter editor (Q-03 to Q-10). Date choices are spelled out, per the spec's date semantics. */
     private fun edit(existing: Filter?) {
         val f = existing ?: Filter("New filter")
         val due = f.due
@@ -109,30 +114,53 @@ class MainActivity : Activity() {
         )
         val anyOf = spinner(if (f.anyOf) 1 else 0, "Match the due date AND the priority", "Match the due date OR the priority")
         val sort = spinner(f.sort.ordinal, "Sort by due date", "Sort by priority")
+        val query = EditText(this).apply {
+            setText(f.query)
+            hint = "Advanced: Tasks query lines, all of which must match, e.g.\ntags include #work\n(due today) OR (priority is high)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            minLines = 2
+        }
+        val preview = TextView(this).apply { setPadding(0, 16, 0, 16) }
+        fun build(): Filter {
+            val n = days.text.toString().toIntOrNull() ?: 7
+            val p = levels[level.selectedItemPosition]
+            return f.copy(
+                name = name.text.toString().ifBlank { "Untitled filter" },
+                status = Status.entries[statusChoice.selectedItemPosition],
+                due = listOf(null, Due.OVERDUE, Due.TODAY, Due.ON_OR_BEFORE_TODAY, Due.next(n), Due.next(n, includeOverdue = true))[dueKind.selectedItemPosition],
+                priority = listOf(null, p..p, p..Priority.HIGHEST, Priority.LOWEST..p)[priorityKind.selectedItemPosition],
+                anyOf = anyOf.selectedItemPosition == 1,
+                sort = Sort.entries[sort.selectedItemPosition],
+                query = query.text.toString().trim(),
+            )
+        }
+        // Live match count against the last scan (Q-10), which also shows query errors as they're typed.
+        val notes = Store.index(this)
+        val tasks = notes.values.flatMap { it.tasks }
+        fun showPreview() {
+            preview.text = runCatching { build().select(tasks, LocalDate.now()) { notes[it.file]?.path ?: it.file } }
+                .fold({ "Matches ${it.size} of ${tasks.size} tasks" }, { it.message })
+        }
+        val onChange = object : TextWatcher, AdapterView.OnItemSelectedListener {
+            override fun afterTextChanged(s: Editable?) = showPreview()
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) = showPreview()
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        listOf(days, query).forEach { it.addTextChangedListener(onChange) }
+        listOf(statusChoice, dueKind, priorityKind, level, anyOf, sort).forEach { it.onItemSelectedListener = onChange }
+        showPreview()
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (existing == null) "New filter" else "Edit filter")
             .setView(ScrollView(this).apply {
                 addView(column().apply {
                     setPadding(48, 16, 48, 0)
-                    listOf(name, statusChoice, dueKind, days, priorityKind, level, anyOf, sort).forEach(::addView)
+                    listOf(name, statusChoice, dueKind, days, priorityKind, level, anyOf, sort, query, preview).forEach(::addView)
                 })
             })
-            .setPositiveButton("Save") { _, _ ->
-                val n = days.text.toString().toIntOrNull() ?: 7
-                val p = levels[level.selectedItemPosition]
-                save(
-                    existing,
-                    f.copy(
-                        name = name.text.toString().ifBlank { "Untitled filter" },
-                        status = Status.entries[statusChoice.selectedItemPosition],
-                        due = listOf(null, Due.OVERDUE, Due.TODAY, Due.ON_OR_BEFORE_TODAY, Due.next(n), Due.next(n, includeOverdue = true))[dueKind.selectedItemPosition],
-                        priority = listOf(null, p..p, p..Priority.HIGHEST, Priority.LOWEST..p)[priorityKind.selectedItemPosition],
-                        anyOf = anyOf.selectedItemPosition == 1,
-                        sort = Sort.entries[sort.selectedItemPosition],
-                    ),
-                )
-            }
+            .setPositiveButton("Save") { _, _ -> save(existing, build()) }
             .setNegativeButton("Cancel", null)
         if (existing != null) dialog.setNeutralButton("Delete") { _, _ -> save(existing, null) }
         dialog.show()

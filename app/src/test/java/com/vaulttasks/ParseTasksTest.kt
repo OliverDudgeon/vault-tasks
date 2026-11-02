@@ -86,4 +86,41 @@ class ParseTasksTest {
         assertEquals(true, cancelled.done)
         assertEquals(Priority.LOW, cancelled.priority)
     }
+
+    @Test
+    fun `reads start, created, done and cancelled dates and the recurrence rule`() {
+        val task = parseTasks("n.md", "- [x] Water plants 🔁 every week when done 🛫 2026-11-01 ➕ 2026-10-01 ✅ 2026-11-02 ❌ 2026-11-03 ^w1  ").single()
+
+        assertEquals("Water plants", task.description)
+        assertEquals(LocalDate.of(2026, 11, 1), task.start)
+        assertEquals(LocalDate.of(2026, 10, 1), task.created)
+        assertEquals(LocalDate.of(2026, 11, 2), task.doneDate)
+        assertEquals(LocalDate.of(2026, 11, 3), task.cancelledDate)
+        assertEquals("every week when done", task.recurrence)
+    }
+
+    @Test
+    fun `gives statuses the plugin's default types, unknown symbols being to-do`() {
+        val types = parseTasks("n.md", "- [ ] a\n- [/] b\n- [x] c\n- [X] d\n- [-] e\n- [?] f").map { it.type }
+
+        assertEquals(
+            listOf(StatusType.TODO, StatusType.IN_PROGRESS, StatusType.DONE, StatusType.DONE, StatusType.CANCELLED, StatusType.TODO),
+            types,
+        )
+    }
+
+    @Test
+    fun `finds tags anywhere in the description`() {
+        val task = parseTasks("n.md", "- [ ] Call #work/admin about #tax ⏫ #urgent").single()
+
+        assertEquals(listOf("#work/admin", "#tax", "#urgent"), task.tags)
+    }
+
+    @Test
+    fun `takes the leftmost of repeated fields, as the plugin does`() {
+        val task = parseTasks("n.md", "- [ ] Twice 🔺 📅 2026-11-01 ⏬ 📅 2026-12-01").single()
+
+        assertEquals(Priority.HIGHEST, task.priority)
+        assertEquals(LocalDate.of(2026, 11, 1), task.due)
+    }
 }

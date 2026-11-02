@@ -6,7 +6,12 @@ import java.io.File
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 
-/** App-private state: saved filters, which filter each widget shows, the task index cache and the last scan status. */
+enum class Theme { SYSTEM, LIGHT, DARK }
+
+/** How a widget shows its tasks (W-07): [dates] is priority and dates, [path] the note's path. */
+data class Look(val dates: Boolean = true, val path: Boolean = true, val compact: Boolean = false, val theme: Theme = Theme.SYSTEM)
+
+/** App-private state: saved filters, which filter each widget shows and how, the task index cache and the last scan status. */
 object Store {
     const val STATUS = "status"
 
@@ -31,8 +36,17 @@ object Store {
     fun setWidgetFilter(context: Context, widgetId: Int, filterId: String) =
         prefs(context).edit().putString("widget.$widgetId", filterId).apply()
 
+    fun look(context: Context, widgetId: Int): Look =
+        prefs(context).getString("look.$widgetId", null)?.split(",")?.let { (dates, path, compact, theme) ->
+            Look(dates.toBoolean(), path.toBoolean(), compact.toBoolean(), Theme.valueOf(theme))
+        } ?: Look()
+
+    fun setLook(context: Context, widgetId: Int, look: Look) = with(look) {
+        prefs(context).edit().putString("look.$widgetId", "$dates,$path,$compact,$theme").apply()
+    }
+
     fun forgetWidgets(context: Context, widgetIds: IntArray) =
-        prefs(context).edit().apply { widgetIds.forEach { remove("widget.$it") } }.apply()
+        prefs(context).edit().apply { widgetIds.forEach { remove("widget.$it"); remove("look.$it") } }.apply()
 
     fun status(context: Context): String? = prefs(context).getString(STATUS, null)
 

@@ -6,6 +6,9 @@ import java.time.LocalDate
 /** Obsidian Tasks priorities, lowest first: an unmarked task ranks between low and medium, as in the plugin. */
 enum class Priority(val emoji: String) { LOWEST("⏬"), LOW("🔽"), NONE(""), MEDIUM("🔼"), HIGH("⏫"), HIGHEST("🔺") }
 
+/** The plugin's status types. [Task.done] is DONE, CANCELLED or NON_TASK, as in its `done` filter. */
+enum class StatusType { TODO, IN_PROGRESS, DONE, CANCELLED, NON_TASK }
+
 /**
  * A task line as found in a note. [file] is opaque to this file: a vault path or a SAF document URI.
  * [noteHash] fingerprints the whole note at scan time, so a writer can tell whether [line] is still exact.
@@ -16,41 +19,48 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
     val description: String
     val due: LocalDate?
     val scheduled: LocalDate?
+    val start: LocalDate?
+    val created: LocalDate?
+    val doneDate: LocalDate?
+    val cancelledDate: LocalDate?
     val priority: Priority
+    /** The 🔁 rule text, such as `every week when done`; null if there is none or it can't be read. */
+    val recurrence: String?
     val recurring: Boolean
+    val tags: List<String>
 
-    /** Done or cancelled, the plugin's `done` filter. Any other status, including unknown custom ones, is open. */
-    val done get() = status in "xX-"
+    // The plugin's default statuses (todo, done, in progress, cancelled). ponytail: custom statuses from the plugin's
+    // settings in .obsidian aren't read, so they're to-do like any unknown symbol; read data.json if a vault needs them.
+    val type: StatusType
+        get() = when (status) {
+            'x', 'X' -> StatusType.DONE
+            '/' -> StatusType.IN_PROGRESS
+            '-' -> StatusType.CANCELLED
+            else -> StatusType.TODO
+        }
+
+    val done get() = type == StatusType.DONE || type == StatusType.CANCELLED || type == StatusType.NON_TASK
 
     init {
-        val match = TASK.find(text)
-        status = match?.groupValues?.get(2)?.single() ?: ' '
-        var rest = (match?.groupValues?.get(3) ?: text).replace(BLOCK_ID, "").trim()
-        var due: LocalDate? = null
-        var scheduled: LocalDate? = null
-        var priority = Priority.NONE
-        var recurring = false
-        var tags = ""
-        // Like the plugin's serializer: peel fields off the end in any order; tags among them go back on the description.
-        var runs = 0
-        while (runs++ < 20) { // The plugin's maxRuns failsafe.
-            val field = FIELD.find(rest) ?: break
-            val (prio, symbol, date, recur) = field.destructured
-            if (prio.isNotEmpty()) priority = Priority.entries.first { it.emoji == prio }
-            when (symbol) {
-                "📅", "📆", "🗓" -> due = parseDate(date)
-                "⏳", "⌛" -> scheduled = parseDate(date)
-            }
-            if (recur.isNotEmpty()) recurring = true
-            if (field.value.trim().startsWith("#")) tags = "${field.value.trim()} $tags"
-            rest = rest.substring(0, field.range.first).trim()
-        }
-        description = "$rest $tags".trim()
-        this.due = due
-        this.scheduled = scheduled
-        this.priority = priority
+        val (body, peeled) = peel(text)
+        val fields = peeled.reversed() // Left to right: the leftmost of a repeated field wins, as in the plugin.
+        status = TASK.find(text)?.groupValues?.get(2)?.single() ?: ' '
+        fun date(vararg symbols: String) = fields.firstOrNull { it.groupValues[2] in symbols }?.let { parseDate(it.groupValues[3]) }
+        due = date("📅", "📆", "🗓")
+        scheduled = date("⏳", "⌛")
+        start = date("🛫")
+        created = date("➕")
+        doneDate = date("✅")
+        cancelledDate = date("❌")
+        priority = fields.firstNotNullOfOrNull { f -> Priority.entries.find { it.emoji == f.groupValues[1] && it != Priority.NONE } }
+            ?: Priority.NONE
+        recurrence = fields.firstOrNull { it.groupValues[4].isNotEmpty() }?.groupValues?.get(4)?.trim()
         // Also a 🔁 the parser couldn't read: completing a recurring task here would drop its next occurrence.
-        this.recurring = recurring || "🔁" in text
+        recurring = recurrence != null || "🔁" in text
+        // Tags among the fields go back on the description, as in the plugin.
+        val fieldTags = fields.map { it.value.trim() }.filter { it.startsWith("#") }
+        description = (listOf(body) + fieldTags).joinToString(" ").trim()
+        tags = TAG.findAll(description).map { it.value.trim() }.toList()
     }
 }
 
@@ -64,11 +74,31 @@ private val FIELD = Regex(
     "(?:(🔺|⏫|🔼|🔽|⏬)\uFE0F?" +
         "|(📅|📆|🗓|⏳|⌛|🛫|➕|✅|❌)\uFE0F? *(\\d{4}-\\d{2}-\\d{2})" +
         "|🔁\uFE0F? *([a-zA-Z0-9, !]+)" +
-        "|🏁\uFE0F? *[a-zA-Z]+" +
+        "|🏁\uFE0F? *([a-zA-Z]+)" +
         "|🆔\uFE0F? *[a-zA-Z0-9-_]+" +
         "|⛔\uFE0F? *[a-zA-Z0-9-_]+(?: *, *[a-zA-Z0-9-_]+ *)*" +
         "|(?:^|\\s)#[^ !@#$%^&*(),.?\":{}|<>]+)$",
 )
+
+private val TAG = Regex("""(?:^|\s)#[^ !@#$%^&*(),.?":{}|<>]+""")
+
+/**
+ * Splits a task line into its description and its metadata fields, last field first. Like the plugin's serializer,
+ * fields are peeled off the end in any order, after any block id. Field ranges are positions in [text].
+ */
+private fun peel(text: String): Pair<String, List<MatchResult>> {
+    val bodyStart = TASK.find(text)?.groups?.get(3)?.range?.first ?: return text to emptyList()
+    var end = text.trimEnd().length
+    BLOCK_ID.find(text.substring(0, end))?.let { end = it.range.first }
+    val fields = mutableListOf<MatchResult>()
+    while (fields.size < 20) { // The plugin's maxRuns failsafe.
+        end = text.substring(0, end).trimEnd().length.coerceAtLeast(bodyStart)
+        val field = FIELD.find(text.substring(0, end))?.takeIf { it.range.first >= bodyStart } ?: break
+        fields += field
+        end = field.range.first
+    }
+    return text.substring(bodyStart, end).trim() to fields
+}
 
 // A malformed date (2026-02-30) is still consumed as a field, as in the plugin, but matches no date filter.
 private fun parseDate(text: String) = runCatching { LocalDate.parse(text) }.getOrNull()
@@ -89,16 +119,22 @@ sealed interface CompleteResult
 data class Completed(val content: String) : CompleteResult
 /** The note changed since the scan, so the task can't be located unambiguously. Rescan; never guess. */
 data object Conflict : CompleteResult
-/** Done, cancelled or recurring: completing it here could drop the next occurrence (§3.2 scope note). */
+/**
+ * Done or cancelled; a custom status, which the vault may define as done; or recurring by a rule [nextOccurrence]
+ * can't follow, where completing it could drop the next occurrence.
+ */
 data object Unsupported : CompleteResult
 
 /**
  * Checks [task] off in [content], the note's current text. Touches no other line. While the note is exactly as
  * scanned, the task is at its scanned line. Otherwise it's found by its exact text, which must then be unique in
  * the note: a cached line number alone can point at a duplicate that shifted into place (N-12).
+ * A recurring task gets its next occurrence on the line above, as the plugin does by default; `🏁 delete` removes
+ * the completed one.
  */
 fun completeTask(content: String, task: Task, today: LocalDate): CompleteResult {
-    if (task.done || task.recurring) return Unsupported
+    if (task.status !in " /") return Unsupported
+    val next = if (task.recurring) nextOccurrenceLine(task, today) ?: return Unsupported else null
     val lines = content.split("\n").toMutableList()
     val i = task.line.takeIf { content.hashCode() == task.noteHash && lines.getOrNull(it)?.removeSuffix("\r") == task.text }
         ?: lines.indices.singleOrNull { lines[it].removeSuffix("\r") == task.text }
@@ -110,8 +146,43 @@ fun completeTask(content: String, task: Task, today: LocalDate): CompleteResult 
     // (and before any trailing whitespace, which is left as it was).
     val body = checked.trimEnd()
     val end = BLOCK_ID.find(body)?.range?.first ?: body.length
-    lines[i] = checked.substring(0, end) + " ✅ $today" + checked.substring(end) + cr
+    val completed = checked.substring(0, end) + " ✅ $today" + checked.substring(end)
+    val delete = peel(task.text).second.any { it.groupValues[5].equals("delete", ignoreCase = true) }
+    lines.removeAt(i)
+    lines.addAll(i, listOfNotNull(next, completed.takeUnless { delete }).map { it + cr })
     return Completed(lines.joinToString("\n"))
+}
+
+/**
+ * [task]'s next occurrence: to-do, with its dates moved on, and without the fields the plugin drops from a new
+ * occurrence (done, cancelled and created dates, block id, 🆔 and ⛔). Everything else stays as written.
+ * Null if the rule isn't supported or a date is malformed, where the plugin would silently drop the recurrence.
+ */
+private fun nextOccurrenceLine(task: Task, today: LocalDate): String? {
+    val rule = task.recurrence ?: return null
+    val text = task.text.trimEnd()
+    val (_, fields) = peel(text)
+    if (fields.any { it.groupValues[3].isNotEmpty() && parseDate(it.groupValues[3]) == null }) return null
+    val next = nextOccurrence(rule, Occurrence(task.start, task.scheduled, task.due), today) ?: return null
+    val edits = mutableListOf<Pair<IntRange, String>>()
+    BLOCK_ID.find(text)?.let { edits += it.range to "" }
+    for (field in fields) {
+        val date = field.groups[3]
+        val new = when (field.groupValues[2]) {
+            "📅", "📆", "🗓" -> next.due
+            "⏳", "⌛" -> next.scheduled
+            "🛫" -> next.start
+            else -> null
+        }
+        val value = field.value.trimStart()
+        when {
+            date != null && new != null -> edits += date.range to "$new"
+            field.groupValues[2] in setOf("✅", "❌", "➕") || value.startsWith("🆔") || value.startsWith("⛔") ->
+                edits += (if (text[field.range.first - 1] == ' ') field.range.first - 1..field.range.last else field.range) to ""
+        }
+    }
+    edits += TASK.find(text)!!.groups[2]!!.range to " "
+    return edits.sortedByDescending { it.first.first }.fold(text) { line, (range, new) -> line.replaceRange(range, new) }
 }
 
 /**
