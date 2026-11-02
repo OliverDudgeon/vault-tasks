@@ -34,7 +34,14 @@ Also checked: renaming a filter updates the title of the widget showing it, and 
 
 ## Not done yet
 
-- **Midnight rollover (V-07):** a "due today" widget only moves to the new day on the next refresh, which happens on any tap or when the app is opened.
-- **Heading or context per task (V-03 asks for it "where possible"):** not kept yet. The path is shown instead.
-- **Project licence (N-02):** the repo has no LICENSE yet. Choose one before distributing.
-- **S26+ check:** the real vault (1,271 notes) hasn't been timed with the incremental index yet. Check the `Scanned … listing X ms` log line.
+- None from Phase 1.
+
+## Decisions since
+
+- **Midnight rollover (V-07):** every refresh sets a non-waking alarm for the next local midnight with a 10-minute window, so no exact-alarm permission is needed. The alarm triggers a refresh. On the emulator it fired at 00:00:18 and set the next one. If the phone is asleep at midnight, it fires when the screen comes on.
+- **Heading context (V-03):** not wanted. Widgets show the note's path only.
+- **Licence (N-02):** GPL-3.0-or-later. The only shipped dependency is the Kotlin standard library (Apache-2.0, compatible with GPLv3 but not GPLv2). The parser's field regexes follow obsidian-tasks (MIT), credited in `Tasks.kt`.
+
+## S26+ timing (real vault, 2 November 2026)
+
+1,258 notes, 371 tasks. Cold scan (index deleted): listing 1,231 ms, reading 16,145 ms. Warm scans: listing about 1.3 s, reading about 90 ms. The incremental index cuts a refresh from about 17 s to about 1.4 s. Listing is now most of a refresh.

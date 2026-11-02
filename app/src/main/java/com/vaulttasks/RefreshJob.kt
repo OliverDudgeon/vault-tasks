@@ -1,5 +1,6 @@
 package com.vaulttasks
 
+import android.app.AlarmManager
 import android.app.job.JobInfo
 import android.app.job.JobParameters
 import android.app.job.JobScheduler
@@ -11,7 +12,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
 
@@ -58,9 +61,20 @@ class RefreshJob : JobService() {
         }
 
         private fun refresh(context: Context) {
+            refreshAtMidnight(context)
             val tree = Vault.tree(context)
             val index = if (tree == null) Result.failure(Exception("Open Vault Tasks and choose a vault.")) else scan(context, tree)
             TasksWidget.renderAll(context, index)
+        }
+
+        /**
+         * Refreshes again just after the next local midnight, so "today" moves on (V-07). A 10-minute window needs no
+         * exact-alarm permission. Non-waking: if the phone is asleep it fires when the screen next comes on.
+         */
+        private fun refreshAtMidnight(context: Context) {
+            val midnight = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            context.getSystemService(AlarmManager::class.java)
+                .setWindow(AlarmManager.RTC, midnight, 10 * 60_000L, TasksWidget.refreshIntent(context))
         }
 
         private fun scan(context: Context, tree: Uri) = runCatching {
