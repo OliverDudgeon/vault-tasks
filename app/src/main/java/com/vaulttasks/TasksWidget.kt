@@ -32,7 +32,7 @@ class TasksWidget : AppWidgetProvider() {
                 val filter = Store.widgetFilter(context, id)
                 val views = RemoteViews(context.packageName, R.layout.widget)
                 views.setTextViewText(R.id.refresh, "${filter?.name ?: "Vault Tasks"}  ⟳")
-                views.setOnClickPendingIntent(R.id.refresh, broadcast(context, Intent(ACTION_REFRESH), PendingIntent.FLAG_IMMUTABLE))
+                views.setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
 
                 val items = RemoteViews.RemoteCollectionItems.Builder().setHasStableIds(true).setViewTypeCount(1)
                 for (task in filter?.select(tasks, LocalDate.now()).orEmpty()) items.addItem(
@@ -82,6 +82,8 @@ class TasksWidget : AppWidgetProvider() {
                     .putExtra("noteHash", task.noteHash),
             )
         }
+
+        fun refreshIntent(context: Context) = broadcast(context, Intent(ACTION_REFRESH), PendingIntent.FLAG_IMMUTABLE)
 
         private fun broadcast(context: Context, intent: Intent, flags: Int) =
             PendingIntent.getBroadcast(context, 0, intent.setClass(context, WidgetActionReceiver::class.java), flags)

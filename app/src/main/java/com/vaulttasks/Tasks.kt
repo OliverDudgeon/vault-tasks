@@ -58,7 +58,8 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
 private val TASK = Regex("""^[\s>]*([-*+]|[0-9]+[.)]) +\[(.)] *(.*)""")
 private val FENCE = Regex("""^[\s>]*(`{3,}|~{3,})""")
 private val BLOCK_ID = Regex(""" \^[A-Za-z0-9-]+$""")
-// One metadata field at the end of a task, per the plugin's DefaultTaskSerializer regexes.
+// One metadata field at the end of a task, per the plugin's DefaultTaskSerializer regexes
+// (obsidian-tasks, MIT License, Copyright (c) 2021 Clare Macrae, Ilyas Landikov and Martin Schenck).
 private val FIELD = Regex(
     "(?:(🔺|⏫|🔼|🔽|⏬)\uFE0F?" +
         "|(📅|📆|🗓|⏳|⌛|🛫|➕|✅|❌)\uFE0F? *(\\d{4}-\\d{2}-\\d{2})" +
