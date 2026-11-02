@@ -49,10 +49,18 @@ class CompleteTaskTest {
     }
 
     @Test
-    fun `refuses recurring tasks rather than lose the next occurrence`() {
-        val weekly = Task("t.md", 0, "- [ ] Weekly review 🔁 every week 📅 2026-11-02")
+    fun `AT-08 puts the next occurrence of a recurring task above the completed one`() {
+        val note = "# Household\r\n  - [ ] Weekly review 🔁 every week 📅 2026-11-02\r\n"
+        val weekly = parseTasks("t.md", note).single()
 
-        assertEquals(Unsupported, completeTask(weekly.text, weekly, today))
+        assertEquals(
+            Completed(
+                "# Household\r\n" +
+                    "  - [ ] Weekly review 🔁 every week 📅 2026-11-09\r\n" +
+                    "  - [x] Weekly review 🔁 every week 📅 2026-11-02 ✅ 2026-11-02\r\n",
+            ),
+            completeTask(note, weekly, today),
+        )
     }
 
     @Test
@@ -96,5 +104,88 @@ class CompleteTaskTest {
         val task = Task("t.md", 0, "- [/] Write report")
 
         assertEquals(Completed("- [x] Write report ✅ 2026-11-02"), completeTask(task.text, task, today))
+    }
+
+    private fun nextLine(line: String, on: LocalDate = today): String {
+        val task = parseTasks("t.md", line).single()
+        return (completeTask(line, task, on) as Completed).content.lines().first()
+    }
+
+    @Test
+    fun `computes the next date like the plugin's recurrence fixtures`() {
+        // From obsidian-tasks tests/Task/Recurrence.test.ts, plus weekday and month-day rules checked against rrule.
+        val cases = listOf(
+            "every month" to ("2022-01-31" to "2022-02-28"),
+            "every 3 months" to ("2022-01-31" to "2022-04-30"),
+            "every 2 months" to ("2023-12-31" to "2024-02-29"),
+            "every 2 years" to ("2024-02-29" to "2026-02-28"),
+            "every 11 months" to ("2020-03-31" to "2021-02-28"),
+            "every 13 months" to ("2020-01-31" to "2021-02-28"),
+            "every day" to ("2026-11-02" to "2026-11-03"),
+            "every 2 weeks" to ("2026-11-02" to "2026-11-16"),
+            "every weekday" to ("2026-11-06" to "2026-11-09"),
+            "every Tuesday and Friday" to ("2026-11-03" to "2026-11-06"),
+            "every 2 weeks on Monday, Wednesday" to ("2026-11-04" to "2026-11-16"),
+            "every month on the 15th" to ("2026-11-20" to "2026-12-15"),
+            "every month on the 31st" to ("2026-10-31" to "2026-12-31"),
+            "every month on the last" to ("2026-01-31" to "2026-02-28"),
+        )
+        for ((rule, dates) in cases) {
+            assertEquals(rule, "- [ ] Pay 🔁 $rule 📅 ${dates.second}", nextLine("- [ ] Pay 🔁 $rule 📅 ${dates.first}"))
+        }
+    }
+
+    @Test
+    fun `keeps the other dates' distance from the due date, or from today when done`() {
+        assertEquals(
+            "- [ ] Plan 🛫 2026-11-07 ⏳ 2026-11-08 📅 2026-11-09 🔁 every week",
+            nextLine("- [ ] Plan 🛫 2026-10-31 ⏳ 2026-11-01 📅 2026-11-02 🔁 every week"),
+        )
+        assertEquals(
+            "- [ ] Mow ⏳ 2026-11-12 🔁 every 10 days when done",
+            nextLine("- [ ] Mow ⏳ 2026-10-01 🔁 every 10 days when done"),
+        )
+    }
+
+    @Test
+    fun `drops done, created, id, dependency and block id fields from the next occurrence only`() {
+        val note = "- [/] Report #work ➕ 2026-10-01 🆔 rep ⛔ data 🔁 every month 📅 2026-11-02 ^rep  "
+
+        assertEquals(
+            Completed(
+                "- [ ] Report #work 🔁 every month 📅 2026-12-02\n" +
+                    "- [x] Report #work ➕ 2026-10-01 🆔 rep ⛔ data 🔁 every month 📅 2026-11-02 ✅ 2026-11-02 ^rep  ",
+            ),
+            completeTask(note, parseTasks("t.md", note).single(), today),
+        )
+    }
+
+    @Test
+    fun `removes the completed line when it says to delete on completion`() {
+        val note = "a\n- [ ] Stretch 🏁 delete 🔁 every day 📅 2026-11-02\n- [ ] Read 🏁 delete\nb"
+        val (stretch, read) = parseTasks("t.md", note)
+
+        val afterStretch = (completeTask(note, stretch, today) as Completed).content
+        assertEquals("a\n- [ ] Stretch 🏁 delete 🔁 every day 📅 2026-11-03\n- [ ] Read 🏁 delete\nb", afterStretch)
+        assertEquals(Completed("a\n- [ ] Stretch 🏁 delete 🔁 every day 📅 2026-11-02\nb"), completeTask(note, read, today))
+    }
+
+    @Test(timeout = 5_000)
+    fun `refuses recurring tasks it can't follow rather than lose the next occurrence`() {
+        for (line in listOf(
+            "- [ ] Bins 🔁 every month on the 2nd Tuesday 📅 2026-11-10",
+            "- [ ] Rent 🔁 every month 📅 2026-02-30",
+            "- [ ] Odd 🔁 every fortnight",
+            "- [ ] Never 🔁 every 12 months on the 30th 📅 2026-02-10",
+        )) {
+            assertEquals(line, Unsupported, completeTask(line, parseTasks("t.md", line).single(), today))
+        }
+    }
+
+    @Test
+    fun `refuses custom statuses, which the vault may define as done or cancelled`() {
+        val forwarded = Task("t.md", 0, "- [>] Call back")
+
+        assertEquals(Unsupported, completeTask(forwarded.text, forwarded, today))
     }
 }
