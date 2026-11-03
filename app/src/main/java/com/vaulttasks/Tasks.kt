@@ -27,6 +27,8 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
     /** The 🔁 rule text, such as `every week when done`; null if there is none or it can't be read. */
     val recurrence: String?
     val recurring: Boolean
+    /** The 🆔 value, for other tasks' ⛔ to point at; null if there is none. */
+    val id: String?
     val tags: List<String>
 
     // The plugin's default statuses (todo, done, in progress, cancelled). ponytail: custom statuses from the plugin's
@@ -55,6 +57,7 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
         priority = fields.firstNotNullOfOrNull { f -> Priority.entries.find { it.emoji == f.groupValues[1] && it != Priority.NONE } }
             ?: Priority.NONE
         recurrence = fields.firstOrNull { it.groupValues[4].isNotEmpty() }?.groupValues?.get(4)?.trim()
+        id = fields.firstOrNull { it.groupValues[6].isNotEmpty() }?.groupValues?.get(6)
         // Also a 🔁 the parser couldn't read: completing a recurring task here would drop its next occurrence.
         recurring = recurrence != null || "🔁" in text
         // Tags among the fields go back on the description, as in the plugin.
@@ -75,7 +78,7 @@ private val FIELD = Regex(
         "|(📅|📆|🗓|⏳|⌛|🛫|➕|✅|❌)\uFE0F? *(\\d{4}-\\d{2}-\\d{2})" +
         "|🔁\uFE0F? *([a-zA-Z0-9, !]+)" +
         "|🏁\uFE0F? *([a-zA-Z]+)" +
-        "|🆔\uFE0F? *[a-zA-Z0-9-_]+" +
+        "|🆔\uFE0F? *([a-zA-Z0-9-_]+)" +
         "|⛔\uFE0F? *[a-zA-Z0-9-_]+(?: *, *[a-zA-Z0-9-_]+ *)*" +
         "|(?:^|\\s)#[^ !@#$%^&*(),.?\":{}|<>]+)$",
 )

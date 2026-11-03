@@ -27,6 +27,7 @@ object Store {
         Filter("Due within 7 days or high priority", due = Due.next(7), priority = Priority.HIGH..Priority.HIGHEST, anyOf = true, id = "soon-or-high"),
         Filter("High priority", priority = Priority.HIGH..Priority.HIGHEST, sort = Sort.PRIORITY, id = "high"),
         Filter("All open tasks", id = "all"),
+        Filter("All open tasks with IDs", query = "has id", id = "with-ids"),
     )
 
     fun prefs(context: Context): SharedPreferences = context.getSharedPreferences("store", Context.MODE_PRIVATE)

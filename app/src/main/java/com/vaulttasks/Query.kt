@@ -16,7 +16,7 @@ class Query(val filters: List<(Task) -> Boolean>, val sorts: List<Comparator<Tas
  * `is [not] recurring`, `priority is [above|below|not] <level>`, `has|no <field> date`, `<field> [on|before|after|
  * on or before|on or after|in …] <date or range>` for due, scheduled, starts, created, done, cancelled and happens,
  * `description|path|filename|folder|root includes|does not include|regex matches|regex does not match <text>`,
- * `tags include|do not include <text>`, `has tags`, `no tags`, and `(…) AND|OR|XOR (…)`, `NOT (…)` combinations.
+ * `tags include|do not include <text>`, `has tags`, `no tags`, `has id`, `no id`, and `(…) AND|OR|XOR (…)`, `NOT (…)` combinations.
  * Also `sort by <field> [reverse]` and `limit [to] N [tasks]`. Comments and layout lines (hide, show, group by, …)
  * don't change which tasks match, so they're skipped. [path] gives a task's vault path.
  */
@@ -102,6 +102,8 @@ private fun leaf(line: String, today: LocalDate, path: (Task) -> String): ((Task
         "is not recurring" -> return { !it.recurring }
         "has tags" -> return { it.tags.isNotEmpty() }
         "no tags" -> return { it.tags.isEmpty() }
+        "has id" -> return { it.id != null }
+        "no id" -> return { it.id == null }
     }
     STATUS_TYPE.matchEntire(line)?.let { m ->
         val type = StatusType.entries.find { it.name.equals(m.groupValues[2], ignoreCase = true) } ?: return null
