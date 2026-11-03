@@ -138,6 +138,15 @@ class FilterTest {
     }
 
     @Test
+    fun `filters on whether a task has an id`() {
+        val tasks = parseTasks("n.md", "- [ ] Root 🆔 abc123\n- [ ] Blocked ⛔ abc123\n- [ ] Plain\n- [x] Done 🆔 d-1 ✅ 2026-11-01")
+
+        assertEquals(listOf("Root", "Done"), query("has id", tasks))
+        assertEquals(listOf("Blocked", "Plain"), query("no id", tasks))
+        assertEquals("abc123", tasks.first().id)
+    }
+
+    @Test
     fun `boolean combinations nest and negate`() {
         assertEquals(listOf("Weekly review", "Order supplies", "Clean kitchen"), query("NOT (path includes Projects)"))
         assertEquals(
