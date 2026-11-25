@@ -41,15 +41,13 @@ class WidgetConfigActivity : AppCompatActivity() {
         val group = findViewById<MaterialButtonToggleGroup>(R.id.group).apply { check(groups[look.group.ordinal]) }
         findViewById<View>(R.id.done).setOnClickListener {
             val choice = findViewById<RadioGroup>(R.id.filters).checkedRadioButtonId
-            filters.getOrNull(choice - 1)?.let { Store.setWidgetFilter(this, widgetId, it.id) }
-            Store.setLook(
-                this, widgetId,
+            TasksWidget.applySettings(
+                this, widgetId, filters.getOrNull(choice - 1)?.id,
                 Look(
                     dates.isChecked, path.isChecked, compact.isChecked, Theme.entries[themes.indexOf(theme.checkedButtonId)],
                     GroupBy.entries[groups.indexOf(group.checkedButtonId)],
                 ),
             )
-            RefreshJob.request(this)
             setResult(RESULT_OK, result)
             finish()
         }

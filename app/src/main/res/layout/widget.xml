@@ -17,17 +17,36 @@
         android:orientation="horizontal"
         android:paddingStart="12dp">
 
-        <TextView
-            android:id="@+id/title"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:fontFamily="sans-serif-medium"
-            android:maxLines="1"
-            android:text="@string/app_name"
-            android:textColor="@color/widget_primary"
-            android:textSize="16sp" />
+            android:minHeight="48dp"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="@string/app_name"
+                android:textColor="@color/widget_primary"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/settings_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:accessibilityLiveRegion="polite"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_variant"
+                android:textSize="12sp"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <ImageView
             android:id="@+id/refresh"
@@ -38,6 +57,16 @@
             android:padding="12dp"
             android:src="@drawable/ic_refresh"
             android:tint="@color/widget_on_surface_variant" />
+
+        <ProgressBar
+            android:id="@+id/header_progress"
+            style="@android:style/Widget.Material.ProgressBar.Small"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:importantForAccessibility="no"
+            android:indeterminateTint="@color/widget_primary"
+            android:padding="12dp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <FrameLayout
@@ -62,21 +91,31 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <ProgressBar
+                android:id="@+id/empty_progress"
+                style="@android:style/Widget.Material.ProgressBar"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:importantForAccessibility="no"
+                android:indeterminateTint="@color/widget_primary" />
+
             <ImageView
                 android:id="@+id/empty_icon"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_task_alt"
-                android:tint="@color/widget_primary" />
+                android:tint="@color/widget_primary"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/empty_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:accessibilityLiveRegion="polite"
                 android:gravity="center"
-                android:text="Loading…"
+                android:text="@string/widget_loading"
                 android:textColor="@color/widget_on_surface_variant"
                 android:textSize="14sp" />
         </LinearLayout>

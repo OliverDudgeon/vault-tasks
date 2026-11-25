@@ -55,13 +55,19 @@ class RefreshJob : JobService() {
     override fun onStopJob(params: JobParameters) = true
 
     companion object {
-        fun request(context: Context) {
+        fun request(context: Context): Boolean = try {
             val job = JobInfo.Builder(1, ComponentName(context, RefreshJob::class.java)).build()
-            context.getSystemService(JobScheduler::class.java).enqueue(job, JobWorkItem(Intent()))
+            val queued = context.getSystemService(JobScheduler::class.java).enqueue(job, JobWorkItem(Intent()))
+            if (queued != JobScheduler.RESULT_SUCCESS) Log.w("VaultTasks", "Couldn't queue a refresh")
+            queued == JobScheduler.RESULT_SUCCESS
+        } catch (e: RuntimeException) {
+            Log.w("VaultTasks", "Couldn't queue a refresh", e)
+            false
         }
 
         private fun refresh(context: Context) {
-            refreshAtMidnight(context)
+            runCatching { refreshAtMidnight(context) }
+                .onFailure { Log.w("VaultTasks", "Couldn't schedule the midnight refresh", it) }
             val tree = Vault.tree(context)
             val index = if (tree == null) Result.failure(Exception("Open Vault Tasks and choose a vault.")) else scan(context, tree)
             TasksWidget.renderAll(context, index)
