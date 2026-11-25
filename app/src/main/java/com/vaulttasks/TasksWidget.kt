@@ -35,29 +35,86 @@ import kotlin.concurrent.thread
 
 /** A list of the vault's tasks matching the saved filter chosen for each widget instance. */
 class TasksWidget : AppWidgetProvider() {
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = RefreshJob.request(context)
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        RefreshJob.request(context)
+    }
 
     override fun onDeleted(context: Context, ids: IntArray) = Store.forgetWidgets(context, ids)
 
     companion object {
+        private val settingsLock = Any()
+
+        fun applySettings(context: Context, id: Int, filterId: String?, look: Look) = synchronized(settingsLock) {
+            val existing = Store.hasWidgetSettings(context, id)
+            val previousLook = if (existing) Store.look(context, id) else look
+            Store.saveWidgetSettings(context, id, filterId, look)
+            val manager = AppWidgetManager.getInstance(context)
+            val filter = Store.widgetFilter(context, id)
+            if (existing) {
+                val paint = Painter(context, previousLook.theme)
+                val views = RemoteViews(context.packageName, R.layout.widget).apply {
+                    setTextViewText(R.id.settings_status, context.getText(R.string.widget_applying_settings))
+                    setViewVisibility(R.id.settings_status, View.VISIBLE)
+                    setViewVisibility(R.id.refresh, View.GONE)
+                    setViewVisibility(R.id.header_progress, View.VISIBLE)
+                    paint.color(this, R.id.settings_status, "setTextColor", R.color.widget_primary)
+                    paint.tint(this, R.id.header_progress, "setIndeterminateTintList", R.color.widget_primary)
+                }
+                manager.partiallyUpdateAppWidget(id, views)
+            } else {
+                manager.updateAppWidget(id, settingsStatus(context, filter, look, loading = true))
+            }
+            if (!RefreshJob.request(context)) {
+                manager.updateAppWidget(id, settingsStatus(context, filter, look, loading = false))
+            }
+        }
+
+        private fun widgetViews(context: Context, filter: Filter?, paint: Painter) =
+            RemoteViews(context.packageName, R.layout.widget).apply {
+                paint.tint(this, android.R.id.background, "setBackgroundTintList", R.color.widget_background)
+                paint.color(this, R.id.title, "setTextColor", R.color.widget_primary)
+                paint.color(this, R.id.refresh, "setColorFilter", R.color.widget_on_surface_variant)
+                paint.color(this, R.id.empty_icon, "setColorFilter", R.color.widget_primary)
+                paint.color(this, R.id.empty_text, "setTextColor", R.color.widget_on_surface_variant)
+                setTextViewText(R.id.title, filter?.name ?: context.getString(R.string.app_name))
+                setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
+                setViewVisibility(R.id.header_progress, View.GONE)
+                setViewVisibility(R.id.settings_status, View.GONE)
+            }
+
+        private fun settingsStatus(context: Context, filter: Filter?, look: Look, loading: Boolean): RemoteViews {
+            val paint = Painter(context, look.theme)
+            return widgetViews(context, filter, paint).apply {
+                setViewVisibility(R.id.refresh, if (loading) View.INVISIBLE else View.VISIBLE)
+                setViewVisibility(R.id.list, View.GONE)
+                setViewVisibility(R.id.empty, View.VISIBLE)
+                setViewVisibility(R.id.empty_progress, if (loading) View.VISIBLE else View.GONE)
+                setViewVisibility(R.id.empty_icon, if (loading) View.GONE else View.VISIBLE)
+                val message = if (loading) R.string.widget_applying_settings else R.string.widget_refresh_failed
+                setTextViewText(R.id.empty_text, context.getText(message))
+                if (loading) {
+                    paint.tint(this, R.id.empty_progress, "setIndeterminateTintList", R.color.widget_primary)
+                    setOnClickPendingIntent(R.id.empty, null)
+                } else {
+                    setImageViewResource(R.id.empty_icon, R.drawable.ic_warning)
+                    paint.color(this, R.id.empty_icon, "setColorFilter", R.color.widget_error)
+                    setOnClickPendingIntent(R.id.empty, refreshIntent(context))
+                }
+            }
+        }
+
         /** Draws every widget from [index], or its error. */
         fun renderAll(context: Context, index: Result<Map<String, IndexedNote>>) {
             val manager = AppWidgetManager.getInstance(context)
             val notes = index.getOrDefault(emptyMap())
             val tasks = notes.values.flatMap { it.tasks }
             val today = LocalDate.now()
-            for (id in manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java))) {
-                val filter = Store.widgetFilter(context, id)
-                val look = Store.look(context, id)
+            fun draw(id: Int, filter: Filter?, look: Look): RemoteViews {
                 val paint = Painter(context, look.theme)
-                val views = RemoteViews(context.packageName, R.layout.widget)
-                paint.background(views, android.R.id.background, R.color.widget_background)
-                paint.color(views, R.id.title, "setTextColor", R.color.widget_primary)
-                paint.color(views, R.id.refresh, "setColorFilter", R.color.widget_on_surface_variant)
-                paint.color(views, R.id.empty_icon, "setColorFilter", R.color.widget_primary)
-                paint.color(views, R.id.empty_text, "setTextColor", R.color.widget_on_surface_variant)
-                views.setTextViewText(R.id.title, filter?.name ?: context.getString(R.string.app_name))
-                views.setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
+                val views = widgetViews(context, filter, paint)
+                views.setViewVisibility(R.id.refresh, View.VISIBLE)
+                views.setViewVisibility(R.id.empty_progress, View.GONE)
+                views.setViewVisibility(R.id.empty_icon, View.VISIBLE)
 
                 val path = { t: Task -> notes[t.file]?.path ?: t.file }
                 val selected = runCatching { filter?.select(tasks, today, path).orEmpty() }
@@ -101,7 +158,30 @@ class TasksWidget : AppWidgetProvider() {
                     R.id.empty,
                     fix?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) },
                 )
-                manager.updateAppWidget(id, views)
+                return views
+            }
+
+            for (id in manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java))) {
+                val (filter, look) = synchronized(settingsLock) {
+                    Store.widgetFilter(context, id) to Store.look(context, id)
+                }
+                val views = try {
+                    draw(id, filter, look)
+                } catch (e: RuntimeException) {
+                    Log.w("VaultTasks", "Couldn't draw widget $id", e)
+                    settingsStatus(context, filter, look, loading = false)
+                }
+                synchronized(settingsLock) {
+                    // A settings save during row rendering owns the display until the next refresh.
+                    if (look == Store.look(context, id) && filter == Store.widgetFilter(context, id)) {
+                        try {
+                            manager.updateAppWidget(id, views)
+                        } catch (e: RuntimeException) {
+                            Log.w("VaultTasks", "Couldn't update widget $id", e)
+                            manager.updateAppWidget(id, settingsStatus(context, filter, look, loading = false))
+                        }
+                    }
+                }
             }
         }
 
@@ -129,7 +209,7 @@ class TasksWidget : AppWidgetProvider() {
                 }
                 setImageViewResource(R.id.check, icon)
                 setContentDescription(R.id.check, label)
-                paint.background(this, R.id.row, R.color.widget_row)
+                paint.tint(this, R.id.row, "setBackgroundTintList", R.color.widget_row)
                 paint.color(this, R.id.check, "setColorFilter", if (task.done) R.color.widget_outline else R.color.widget_primary)
                 setTextViewText(R.id.text, styled(context, task))
                 paint.color(this, R.id.text, "setTextColor", if (task.done) R.color.widget_on_surface_variant else R.color.widget_on_surface)
@@ -219,7 +299,10 @@ private const val ACTION_REFRESH = "com.vaulttasks.REFRESH"
 /** Widget taps: complete a task, or refresh. Not exported, so only our own PendingIntents can make it write. */
 class WidgetActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == ACTION_REFRESH) return RefreshJob.request(context)
+        if (intent.action == ACTION_REFRESH) {
+            RefreshJob.request(context)
+            return
+        }
         val pending = goAsync()
         thread {
             try {
@@ -277,13 +360,13 @@ private class Painter(private val context: Context, private val theme: Theme) {
         }
     }
 
-    /** Tints view [id]'s background drawable, keeping its rounded shape. */
-    fun background(views: RemoteViews, id: Int, color: Int) {
+    /** Applies a tint to a view drawable, keeping its shape. */
+    fun tint(views: RemoteViews, id: Int, method: String, color: Int) {
         val (day, night) = pair(color).let { (d, n) -> ColorStateList.valueOf(d) to ColorStateList.valueOf(n) }
         when (theme) {
-            Theme.SYSTEM -> views.setColorStateList(id, "setBackgroundTintList", day, night)
-            Theme.LIGHT -> views.setColorStateList(id, "setBackgroundTintList", day)
-            Theme.DARK -> views.setColorStateList(id, "setBackgroundTintList", night)
+            Theme.SYSTEM -> views.setColorStateList(id, method, day, night)
+            Theme.LIGHT -> views.setColorStateList(id, method, day)
+            Theme.DARK -> views.setColorStateList(id, method, night)
         }
     }
 }

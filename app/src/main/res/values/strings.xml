@@ -2,4 +2,7 @@
 <resources>
     <string name="app_name">Vault Tasks</string>
     <string name="widget_description">Tasks from your whole Obsidian vault that match a saved filter</string>
+    <string name="widget_loading">Loading tasks…</string>
+    <string name="widget_applying_settings">Applying settings…</string>
+    <string name="widget_refresh_failed">Couldn’t update widget. Tap to retry.</string>
 </resources>

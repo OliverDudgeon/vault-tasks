@@ -40,8 +40,7 @@ object Store {
     fun widgetFilter(context: Context, widgetId: Int): Filter? =
         prefs(context).getString("widget.$widgetId", null)?.let { id -> filters(context).find { it.id == id } }
 
-    fun setWidgetFilter(context: Context, widgetId: Int, filterId: String) =
-        prefs(context).edit().putString("widget.$widgetId", filterId).apply()
+    fun hasWidgetSettings(context: Context, widgetId: Int) = prefs(context).contains("look.$widgetId")
 
     fun look(context: Context, widgetId: Int): Look =
         prefs(context).getString("look.$widgetId", null)?.split(",")?.let { fields ->
@@ -49,8 +48,11 @@ object Store {
             Look(dates.toBoolean(), path.toBoolean(), compact.toBoolean(), Theme.valueOf(theme), GroupBy.valueOf(fields.getOrElse(4) { "NONE" }))
         } ?: Look()
 
-    fun setLook(context: Context, widgetId: Int, look: Look) = with(look) {
-        prefs(context).edit().putString("look.$widgetId", "$dates,$path,$compact,$theme,$group").apply()
+    fun saveWidgetSettings(context: Context, widgetId: Int, filterId: String?, look: Look) = with(look) {
+        prefs(context).edit()
+            .putString("look.$widgetId", "$dates,$path,$compact,$theme,$group")
+            .apply { if (filterId != null) putString("widget.$widgetId", filterId) }
+            .apply()
     }
 
     fun forgetWidgets(context: Context, widgetIds: IntArray) =
