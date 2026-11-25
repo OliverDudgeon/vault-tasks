@@ -1,0 +1,223 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version to release (e.g. 0.1.0 or 1.0.0, with or without leading v)"
+        required: true
+        type: string
+      version_code:
+        description: "Optional Android versionCode override (leave blank to derive automatically from version)"
+        required: false
+        type: string
+        default: ""
+      release_notes:
+        description: "Optional extra notes prepended above GitHub's auto-generated release notes"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, tag, and publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version and compute versionCode
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+
+          version="${INPUT_VERSION#v}"
+          if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '${INPUT_VERSION}'. Expected SemVer like 0.1.0, 1.0.0, or 1.0.0-beta.1."
+            exit 1
+          fi
+
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          prerelease="${BASH_REMATCH[4]:-}"
+          tag="v${version}"
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag '${tag}' already exists locally."
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]]; then
+            echo "::error::Tag '${tag}' already exists on origin."
+            exit 1
+          fi
+
+          is_prerelease="false"
+          if [[ -n "$prerelease" ]]; then
+            is_prerelease="true"
+          fi
+
+          if [[ -n "$INPUT_VERSION_CODE" ]]; then
+            if [[ ! "$INPUT_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Invalid version_code '${INPUT_VERSION_CODE}'. Must be a positive integer."
+              exit 1
+            fi
+            version_code="$INPUT_VERSION_CODE"
+          else
+            if (( 10#$major > 2100 || 10#$minor >= 100 || 10#$patch >= 100 )); then
+              echo "::error::Version '${version}' exceeds automatic versionCode bounds; provide version_code explicitly."
+              exit 1
+            fi
+            offset=99
+            if [[ -n "$prerelease" ]]; then
+              if [[ "$prerelease" =~ ([0-9]+)$ ]]; then
+                offset=$(( 10#${BASH_REMATCH[1]} ))
+                if (( offset > 98 )); then
+                  offset=98
+                fi
+              else
+                offset=0
+              fi
+            fi
+            version_code=$(( 10#$major * 1000000 + 10#$minor * 10000 + 10#$patch * 100 + offset ))
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${is_prerelease}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${tag} (versionName=${version}, versionCode=${version_code}, prerelease=${is_prerelease})"
+
+      - name: Verify signing secrets are configured
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -z "$KEYSTORE_BASE64" ]] && missing+=("KEYSTORE_BASE64")
+          [[ -z "$KEYSTORE_PASSWORD" ]] && missing+=("KEYSTORE_PASSWORD")
+          [[ -z "$KEY_ALIAS" ]] && missing+=("KEY_ALIAS")
+          [[ -z "$KEY_PASSWORD" ]] && missing+=("KEY_PASSWORD")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required signing secrets: ${missing[*]}. See README.md for release signing setup."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > "${RUNNER_TEMP}/release.keystore"
+
+      - name: Build signed release APK
+        env:
+          SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE"
+
+      - name: Verify APK signature and stage release assets
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          apk_in="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$apk_in" ]]; then
+            echo "::error::Expected release APK at ${apk_in} was not found."
+            exit 1
+          fi
+
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::apksigner not found under ${ANDROID_HOME}/build-tools."
+            exit 1
+          fi
+          "$apksigner" verify --print-certs "$apk_in"
+
+          apk_name="vault-tasks-${TAG}.apk"
+          cp "$apk_in" "${RUNNER_TEMP}/${apk_name}"
+          (
+            cd "${RUNNER_TEMP}"
+            sha256sum "$apk_name" > "${apk_name}.sha256"
+            cat "${apk_name}.sha256"
+          )
+
+      - name: Create and push git tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release ${TAG}"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          apk_name="vault-tasks-${TAG}.apk"
+          args=(
+            "$TAG"
+            "${RUNNER_TEMP}/${apk_name}"
+            "${RUNNER_TEMP}/${apk_name}.sha256"
+            --title "Vault Tasks ${TAG}"
+            --verify-tag
+            --generate-notes
+          )
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          if [[ -n "$RELEASE_NOTES" ]]; then
+            args+=(--notes "$RELEASE_NOTES")
+          fi
+          gh release create "${args[@]}"
+
+      - name: Clean up temporary keystore
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/release.keystore"
