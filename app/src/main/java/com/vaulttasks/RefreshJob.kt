@@ -55,22 +55,31 @@ class RefreshJob : JobService() {
     override fun onStopJob(params: JobParameters) = true
 
     companion object {
-        fun request(context: Context): Boolean = try {
-            val job = JobInfo.Builder(1, ComponentName(context, RefreshJob::class.java)).build()
-            val queued = context.getSystemService(JobScheduler::class.java).enqueue(job, JobWorkItem(Intent()))
-            if (queued != JobScheduler.RESULT_SUCCESS) Log.w("VaultTasks", "Couldn't queue a refresh")
-            queued == JobScheduler.RESULT_SUCCESS
-        } catch (e: RuntimeException) {
-            Log.w("VaultTasks", "Couldn't queue a refresh", e)
-            false
+        fun request(context: Context, expedited: Boolean = false): Boolean {
+            val scheduler = context.getSystemService(JobScheduler::class.java)
+            fun enqueue(asExpedited: Boolean): Boolean = try {
+                val job = JobInfo.Builder(1, ComponentName(context, RefreshJob::class.java))
+                    .apply { if (asExpedited) setExpedited(true) }
+                    .build()
+                val queued = scheduler.enqueue(job, JobWorkItem(Intent()))
+                if (queued != JobScheduler.RESULT_SUCCESS) {
+                    Log.w("VaultTasks", "Couldn't queue a refresh (expedited=$asExpedited)")
+                }
+                queued == JobScheduler.RESULT_SUCCESS
+            } catch (e: RuntimeException) {
+                Log.w("VaultTasks", "Couldn't queue a refresh (expedited=$asExpedited)", e)
+                false
+            }
+            return (expedited && enqueue(true)) || enqueue(false)
         }
 
         private fun refresh(context: Context) {
+            val generation = TasksWidget.refreshGeneration()
             runCatching { refreshAtMidnight(context) }
                 .onFailure { Log.w("VaultTasks", "Couldn't schedule the midnight refresh", it) }
             val tree = Vault.tree(context)
             val index = if (tree == null) Result.failure(Exception("Open Vault Tasks and choose a vault.")) else scan(context, tree)
-            TasksWidget.renderAll(context, index)
+            TasksWidget.renderAll(context, index, generation)
         }
 
         /**
@@ -80,7 +89,7 @@ class RefreshJob : JobService() {
         private fun refreshAtMidnight(context: Context) {
             val midnight = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             context.getSystemService(AlarmManager::class.java)
-                .setWindow(AlarmManager.RTC, midnight, 10 * 60_000L, TasksWidget.refreshIntent(context))
+                .setWindow(AlarmManager.RTC, midnight, 10 * 60_000L, TasksWidget.scheduledRefreshIntent(context))
         }
 
         private fun scan(context: Context, tree: Uri) = runCatching {

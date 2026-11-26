@@ -46,6 +46,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Opens Usage Access settings from the widget and updates widgets as soon as the permission changes. -->
+        <activity
+            android:name=".UsageAccessActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name=".WidgetActionReceiver"
             android:exported="false" />

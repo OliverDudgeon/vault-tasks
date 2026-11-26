@@ -4,5 +4,7 @@
     <string name="widget_description">Tasks from your whole Obsidian vault that match a saved filter</string>
     <string name="widget_loading">Loading tasks…</string>
     <string name="widget_applying_settings">Applying settings…</string>
+    <string name="widget_refreshing">Refreshing…</string>
     <string name="widget_refresh_failed">Couldn’t update widget. Tap to retry.</string>
+    <string name="usage_access_enabled">Sync status enabled</string>
 </resources>

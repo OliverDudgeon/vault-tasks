@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         Store.prefs(this).registerOnSharedPreferenceChangeListener(onStatus)
         showStatus()
         showFilters()
-        RefreshJob.request(this)
+        RefreshJob.request(this, expedited = true)
     }
 
     override fun onPause() {
@@ -173,7 +173,7 @@ class MainActivity : AppCompatActivity() {
         }
         Store.saveFilters(this, filters)
         showFilters()
-        RefreshJob.request(this)
+        RefreshJob.request(this, expedited = true)
     }
 
     /** One line saying what a filter selects, for its card. */

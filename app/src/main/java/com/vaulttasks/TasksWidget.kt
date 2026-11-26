@@ -13,7 +13,6 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -46,6 +45,9 @@ class TasksWidget : AppWidgetProvider() {
 
     companion object {
         private val settingsLock = Any()
+        private var refreshGeneration = 0L
+
+        fun refreshGeneration(): Long = synchronized(settingsLock) { refreshGeneration }
 
         fun applySettings(context: Context, id: Int, filterId: String?, look: Look) = synchronized(settingsLock) {
             val existing = Store.hasWidgetSettings(context, id)
@@ -54,21 +56,63 @@ class TasksWidget : AppWidgetProvider() {
             val manager = AppWidgetManager.getInstance(context)
             val filter = Store.widgetFilter(context, id)
             if (existing) {
-                val paint = Painter(context, previousLook.theme)
-                val views = RemoteViews(context.packageName, R.layout.widget).apply {
-                    setTextViewText(R.id.sync, context.getText(R.string.widget_applying_settings))
-                    setViewVisibility(R.id.sync, View.VISIBLE)
-                    setViewVisibility(R.id.refresh, View.GONE)
-                    setViewVisibility(R.id.header_progress, View.VISIBLE)
-                    paint.color(this, R.id.sync, "setTextColor", R.color.widget_primary)
-                    paint.tint(this, R.id.header_progress, "setIndeterminateTintList", R.color.widget_primary)
-                }
-                manager.partiallyUpdateAppWidget(id, views)
+                manager.partiallyUpdateAppWidget(id, headerProgressViews(context, previousLook, R.string.widget_applying_settings))
             } else {
                 manager.updateAppWidget(id, settingsStatus(context, filter, look, loading = true))
             }
-            if (!RefreshJob.request(context)) {
+            if (RefreshJob.request(context, expedited = true)) {
+                refreshGeneration++
+            } else {
                 manager.updateAppWidget(id, settingsStatus(context, filter, look, loading = false))
+            }
+        }
+
+        /** Immediately redraws widgets from the cached index so a sync-permission change shows up at once, then scans. */
+        fun refreshSyncStatus(context: Context) {
+            val app = context.applicationContext
+            thread {
+                val cached = Store.index(app)
+                if (Vault.tree(app) != null && cached.isNotEmpty()) {
+                    renderAll(app, Result.success(cached))
+                    RefreshJob.request(app, expedited = true)
+                } else {
+                    requestRefresh(app)
+                }
+            }
+        }
+
+        fun requestRefresh(context: Context) = synchronized(settingsLock) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, TasksWidget::class.java))
+            for (id in ids) {
+                manager.partiallyUpdateAppWidget(id, headerProgressViews(context, Store.look(context, id), R.string.widget_refreshing))
+            }
+            if (RefreshJob.request(context, expedited = true)) {
+                refreshGeneration++
+            } else {
+                for (id in ids) {
+                    val paint = Painter(context, Store.look(context, id).theme)
+                    val views = RemoteViews(context.packageName, R.layout.widget).apply {
+                        setTextViewText(R.id.sync, context.getText(R.string.widget_refresh_failed))
+                        setViewVisibility(R.id.sync, View.VISIBLE)
+                        setViewVisibility(R.id.refresh, View.VISIBLE)
+                        setViewVisibility(R.id.header_progress, View.GONE)
+                        paint.color(this, R.id.sync, "setTextColor", R.color.widget_error)
+                    }
+                    manager.partiallyUpdateAppWidget(id, views)
+                }
+            }
+        }
+
+        private fun headerProgressViews(context: Context, look: Look, statusRes: Int): RemoteViews {
+            val paint = Painter(context, look.theme)
+            return RemoteViews(context.packageName, R.layout.widget).apply {
+                setTextViewText(R.id.sync, context.getText(statusRes))
+                setViewVisibility(R.id.sync, View.VISIBLE)
+                setViewVisibility(R.id.refresh, View.GONE)
+                setViewVisibility(R.id.header_progress, View.VISIBLE)
+                paint.color(this, R.id.sync, "setTextColor", R.color.widget_primary)
+                paint.tint(this, R.id.header_progress, "setIndeterminateTintList", R.color.widget_primary)
             }
         }
 
@@ -107,7 +151,7 @@ class TasksWidget : AppWidgetProvider() {
         }
 
         /** Draws every widget from [index], or its error. */
-        fun renderAll(context: Context, index: Result<Map<String, IndexedNote>>) {
+        fun renderAll(context: Context, index: Result<Map<String, IndexedNote>>, generation: Long = refreshGeneration()) {
             val manager = AppWidgetManager.getInstance(context)
             val notes = index.getOrDefault(emptyMap())
             val tasks = notes.values.flatMap { it.tasks }
@@ -181,8 +225,8 @@ class TasksWidget : AppWidgetProvider() {
                     settingsStatus(context, filter, look, loading = false)
                 }
                 synchronized(settingsLock) {
-                    // A settings save during row rendering owns the display until the next refresh.
-                    if (look == Store.look(context, id) && filter == Store.widgetFilter(context, id)) {
+                    // A settings save or newer manual refresh owns the display until the next scan finishes.
+                    if (generation == refreshGeneration && look == Store.look(context, id) && filter == Store.widgetFilter(context, id)) {
                         try {
                             manager.updateAppWidget(id, views)
                         } catch (e: RuntimeException) {
@@ -211,7 +255,8 @@ class TasksWidget : AppWidgetProvider() {
             paint.color(views, R.id.sync, "setTextColor", if (warn) R.color.widget_error else R.color.widget_on_surface_variant)
             val intent = when {
                 tree == null -> null
-                sync == Sync.NoAccess -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                sync == Sync.NoAccess -> Intent(context, UsageAccessActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 else -> Obsidian.open(tree)
             }
             views.setOnClickPendingIntent(
@@ -324,20 +369,35 @@ class TasksWidget : AppWidgetProvider() {
             }
         }
 
-        fun refreshIntent(context: Context) = broadcast(context, Intent(ACTION_REFRESH), PendingIntent.FLAG_IMMUTABLE)
+        fun refreshIntent(context: Context) = broadcast(
+            context, Intent(ACTION_REFRESH),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            requestCode = 1,
+        )
 
-        private fun broadcast(context: Context, intent: Intent, flags: Int) =
-            PendingIntent.getBroadcast(context, 0, intent.setClass(context, WidgetActionReceiver::class.java), flags)
+        fun scheduledRefreshIntent(context: Context) = broadcast(
+            context, Intent(ACTION_SCHEDULED_REFRESH),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            requestCode = 2,
+        )
+
+        private fun broadcast(context: Context, intent: Intent, flags: Int, requestCode: Int = 0) =
+            PendingIntent.getBroadcast(context, requestCode, intent.setClass(context, WidgetActionReceiver::class.java), flags)
     }
 }
 
 private const val ACTION_REFRESH = "com.vaulttasks.REFRESH"
+private const val ACTION_SCHEDULED_REFRESH = "com.vaulttasks.SCHEDULED_REFRESH"
 private const val ACTION_OPEN = "com.vaulttasks.OPEN"
 
 /** Widget taps: complete a task, open its note, or refresh. Not exported, so only our own PendingIntents can make it write. */
 class WidgetActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
+            TasksWidget.requestRefresh(context)
+            return
+        }
+        if (intent.action == ACTION_SCHEDULED_REFRESH) {
             RefreshJob.request(context)
             return
         }
@@ -355,7 +415,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
                 Log.w("VaultTasks", "Complete failed", e)
                 toast(context, "Couldn't complete the task: ${e.message}")
             } finally {
-                RefreshJob.request(context)
+                RefreshJob.request(context, expedited = true)
                 pending.finish()
             }
         }
