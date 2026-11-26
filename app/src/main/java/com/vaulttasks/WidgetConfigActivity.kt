@@ -5,10 +5,15 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.RadioGroup
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
 
@@ -21,6 +26,12 @@ class WidgetConfigActivity : AppCompatActivity() {
     private var filters = emptyList<Filter>()
     private val themes = listOf(R.id.theme_system, R.id.theme_light, R.id.theme_dark)
     private val groups = listOf(R.id.group_none, R.id.group_note, R.id.group_folder, R.id.group_agenda)
+    private val groupText = listOf(
+        "None" to "One list, in the filter's sort order.",
+        "Note" to "Tasks under the note they're in, notes A to Z.",
+        "Folder" to "Tasks under their note's folder, folders A to Z.",
+        "Agenda" to "Only tasks with a due date, under the day they're due.",
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -38,14 +49,20 @@ class WidgetConfigActivity : AppCompatActivity() {
         val path = findViewById<MaterialSwitch>(R.id.show_path).apply { isChecked = look.path }
         val compact = findViewById<MaterialSwitch>(R.id.compact).apply { isChecked = look.compact }
         val theme = findViewById<MaterialButtonToggleGroup>(R.id.theme).apply { check(themes[look.theme.ordinal]) }
-        val group = findViewById<MaterialButtonToggleGroup>(R.id.group).apply { check(groups[look.group.ordinal]) }
+        val hint = MaterialColors.getColor(window.decorView, com.google.android.material.R.attr.colorOnSurfaceVariant)
+        groups.zip(groupText).forEach { (id, text) ->
+            findViewById<MaterialRadioButton>(id).text = SpannableStringBuilder(text.first).append("\n")
+                .append(text.second, ForegroundColorSpan(hint), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                .apply { setSpan(RelativeSizeSpan(0.85f), length - text.second.length, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        }
+        val group = findViewById<RadioGroup>(R.id.group).apply { check(groups[look.group.ordinal]) }
         findViewById<View>(R.id.done).setOnClickListener {
             val choice = findViewById<RadioGroup>(R.id.filters).checkedRadioButtonId
             TasksWidget.applySettings(
                 this, widgetId, filters.getOrNull(choice - 1)?.id,
                 Look(
                     dates.isChecked, path.isChecked, compact.isChecked, Theme.entries[themes.indexOf(theme.checkedButtonId)],
-                    GroupBy.entries[groups.indexOf(group.checkedButtonId)],
+                    GroupBy.entries[groups.indexOf(group.checkedRadioButtonId)],
                 ),
             )
             setResult(RESULT_OK, result)

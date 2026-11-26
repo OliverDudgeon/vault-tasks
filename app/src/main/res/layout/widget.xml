@@ -17,10 +17,13 @@
         android:orientation="horizontal"
         android:paddingStart="12dp">
 
+        <!-- Tapping the title opens Obsidian, which syncs; the sync line under it says whether it needs to. -->
         <LinearLayout
+            android:id="@+id/heading"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
             android:minHeight="48dp"
             android:gravity="center_vertical"
             android:orientation="vertical">
@@ -37,7 +40,7 @@
                 android:textSize="16sp" />
 
             <TextView
-                android:id="@+id/settings_status"
+                android:id="@+id/sync"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:accessibilityLiveRegion="polite"

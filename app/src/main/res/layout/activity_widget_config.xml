@@ -95,55 +95,42 @@
                         android:textAppearance="?attr/textAppearanceLabelLarge"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
-                    <com.google.android.material.button.MaterialButtonToggleGroup
+                    <!-- One option per line, so every name and its description fit on a narrow phone. Text set in code. -->
+                    <RadioGroup
                         android:id="@+id/group"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        app:selectionRequired="true"
-                        app:singleSelection="true">
+                        android:layout_marginBottom="8dp">
 
-                        <com.google.android.material.button.MaterialButton
+                        <com.google.android.material.radiobutton.MaterialRadioButton
                             android:id="@+id/group_none"
-                            style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="None" />
+                            android:minHeight="48dp"
+                            android:paddingVertical="6dp" />
 
-                        <com.google.android.material.button.MaterialButton
+                        <com.google.android.material.radiobutton.MaterialRadioButton
                             android:id="@+id/group_note"
-                            style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Note" />
+                            android:minHeight="48dp"
+                            android:paddingVertical="6dp" />
 
-                        <com.google.android.material.button.MaterialButton
+                        <com.google.android.material.radiobutton.MaterialRadioButton
                             android:id="@+id/group_folder"
-                            style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Folder" />
+                            android:minHeight="48dp"
+                            android:paddingVertical="6dp" />
 
-                        <com.google.android.material.button.MaterialButton
+                        <com.google.android.material.radiobutton.MaterialRadioButton
                             android:id="@+id/group_agenda"
-                            style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Agenda" />
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:layout_marginBottom="8dp"
-                        android:text="Agenda shows only tasks with a due date, under the day they're due."
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
+                            android:minHeight="48dp"
+                            android:paddingVertical="6dp" />
+                    </RadioGroup>
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/show_dates"

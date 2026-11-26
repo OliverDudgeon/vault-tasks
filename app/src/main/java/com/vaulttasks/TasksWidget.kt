@@ -13,6 +13,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -26,7 +27,9 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
@@ -53,11 +56,11 @@ class TasksWidget : AppWidgetProvider() {
             if (existing) {
                 val paint = Painter(context, previousLook.theme)
                 val views = RemoteViews(context.packageName, R.layout.widget).apply {
-                    setTextViewText(R.id.settings_status, context.getText(R.string.widget_applying_settings))
-                    setViewVisibility(R.id.settings_status, View.VISIBLE)
+                    setTextViewText(R.id.sync, context.getText(R.string.widget_applying_settings))
+                    setViewVisibility(R.id.sync, View.VISIBLE)
                     setViewVisibility(R.id.refresh, View.GONE)
                     setViewVisibility(R.id.header_progress, View.VISIBLE)
-                    paint.color(this, R.id.settings_status, "setTextColor", R.color.widget_primary)
+                    paint.color(this, R.id.sync, "setTextColor", R.color.widget_primary)
                     paint.tint(this, R.id.header_progress, "setIndeterminateTintList", R.color.widget_primary)
                 }
                 manager.partiallyUpdateAppWidget(id, views)
@@ -79,12 +82,12 @@ class TasksWidget : AppWidgetProvider() {
                 setTextViewText(R.id.title, filter?.name ?: context.getString(R.string.app_name))
                 setOnClickPendingIntent(R.id.refresh, refreshIntent(context))
                 setViewVisibility(R.id.header_progress, View.GONE)
-                setViewVisibility(R.id.settings_status, View.GONE)
             }
 
         private fun settingsStatus(context: Context, filter: Filter?, look: Look, loading: Boolean): RemoteViews {
             val paint = Painter(context, look.theme)
             return widgetViews(context, filter, paint).apply {
+                setViewVisibility(R.id.sync, View.GONE)
                 setViewVisibility(R.id.refresh, if (loading) View.INVISIBLE else View.VISIBLE)
                 setViewVisibility(R.id.list, View.GONE)
                 setViewVisibility(R.id.empty, View.VISIBLE)
@@ -109,12 +112,18 @@ class TasksWidget : AppWidgetProvider() {
             val notes = index.getOrDefault(emptyMap())
             val tasks = notes.values.flatMap { it.tasks }
             val today = LocalDate.now()
+            val tree = Vault.tree(context)
+            val sync = runCatching {
+                syncState(Obsidian.hasUsageAccess(context), Obsidian.lastUsed(context), notes.values.map { it.modified })
+            }.getOrDefault(Sync.NoAccess)
+
             fun draw(id: Int, filter: Filter?, look: Look): RemoteViews {
                 val paint = Painter(context, look.theme)
                 val views = widgetViews(context, filter, paint)
                 views.setViewVisibility(R.id.refresh, View.VISIBLE)
                 views.setViewVisibility(R.id.empty_progress, View.GONE)
                 views.setViewVisibility(R.id.empty_icon, View.VISIBLE)
+                syncLine(context, views, sync, tree, paint, today)
 
                 val path = { t: Task -> notes[t.file]?.path ?: t.file }
                 val selected = runCatching { filter?.select(tasks, today, path).orEmpty() }
@@ -183,6 +192,32 @@ class TasksWidget : AppWidgetProvider() {
                     }
                 }
             }
+        }
+
+        /** Under the title: whether Obsidian has synced. Tapping the title opens Obsidian, or asks for usage access. */
+        private fun syncLine(context: Context, views: RemoteViews, sync: Sync, tree: Uri?, paint: Painter, today: LocalDate) {
+            val text = when (sync) {
+                Sync.NoAccess -> "Tap to show sync status"
+                Sync.NotRecently -> "Not synced in 4 weeks"
+                is Sync.Unsynced -> "${sync.notes} ${if (sync.notes == 1) "note" else "notes"} not synced. Tap to sync."
+                is Sync.Synced -> Instant.ofEpochMilli(sync.at).atZone(ZoneId.systemDefault()).let { at ->
+                    val time = at.format(DateTimeFormatter.ofPattern("HH:mm"))
+                    if (at.toLocalDate() == today) "Synced $time" else "Synced ${friendlyDate(at.toLocalDate(), today)} $time"
+                }
+            }
+            views.setTextViewText(R.id.sync, text)
+            views.setViewVisibility(R.id.sync, if (tree == null) View.GONE else View.VISIBLE)
+            val warn = sync is Sync.Unsynced || sync is Sync.NotRecently
+            paint.color(views, R.id.sync, "setTextColor", if (warn) R.color.widget_error else R.color.widget_on_surface_variant)
+            val intent = when {
+                tree == null -> null
+                sync == Sync.NoAccess -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                else -> Obsidian.open(tree)
+            }
+            views.setOnClickPendingIntent(
+                R.id.heading,
+                intent?.let { PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) },
+            )
         }
 
         /** A group's heading: agenda days that have passed are in the error colour. */
@@ -259,6 +294,8 @@ class TasksWidget : AppWidgetProvider() {
                     setViewPadding(R.id.item, 0, px, 0, px)
                     setViewPadding(R.id.check, 10 * px, 10 * px, 10 * px, 10 * px)
                 }
+                // Tapping the task opens its note in Obsidian; tapping the checkbox completes it.
+                setOnClickFillInIntent(R.id.row, Intent(ACTION_OPEN).putExtra("path", path))
                 if (!task.done) setOnClickFillInIntent(
                     R.id.check,
                     Intent().putExtra("file", task.file).putExtra("line", task.line).putExtra("text", task.text)
@@ -295,13 +332,20 @@ class TasksWidget : AppWidgetProvider() {
 }
 
 private const val ACTION_REFRESH = "com.vaulttasks.REFRESH"
+private const val ACTION_OPEN = "com.vaulttasks.OPEN"
 
-/** Widget taps: complete a task, or refresh. Not exported, so only our own PendingIntents can make it write. */
+/** Widget taps: complete a task, open its note, or refresh. Not exported, so only our own PendingIntents can make it write. */
 class WidgetActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
             RefreshJob.request(context)
             return
+        }
+        if (intent.action == ACTION_OPEN) {
+            val tree = Vault.tree(context) ?: return
+            // ponytail: opens the note, not the task's line; obsidian://open can't jump to a line without a plugin.
+            return runCatching { context.startActivity(Obsidian.open(tree, intent.getStringExtra("path"))) }
+                .getOrElse { toast(context, "Couldn't open Obsidian: ${it.message}") }
         }
         val pending = goAsync()
         thread {
