@@ -36,6 +36,14 @@ class GroupTasksTest {
             ),
             groups(GroupBy.NOTE),
         )
+        assertEquals(
+            listOf("Inbox.md", "Personal/Household/Tasks.md", "Projects/Ideas.md", "Projects/Research.md"),
+            groupTasks(tasks, GroupBy.NOTE, today, { it.file }, Locale.UK).map { it.notePath },
+        )
+        assertEquals(
+            listOf(null, null, null),
+            groupTasks(tasks, GroupBy.FOLDER, today, { it.file }, Locale.UK).map { it.notePath },
+        )
     }
 
     @Test

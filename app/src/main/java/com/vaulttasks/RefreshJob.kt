@@ -102,6 +102,7 @@ class RefreshJob : JobService() {
                     .getOrNull()
             }
             Store.saveIndex(context, index)
+            Store.setAdvancedUri(context, Vault.hasObsidianPlugin(context, tree, Obsidian.ADVANCED_URI_PLUGIN))
             val unreadable = listing.size - index.size
             val status = "${listing.size} notes, ${index.values.sumOf { it.tasks.size }} tasks" +
                 (if (unreadable > 0) ", $unreadable notes unreadable (see the VaultTasks log)" else "")

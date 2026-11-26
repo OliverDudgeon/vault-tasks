@@ -84,5 +84,23 @@ object Vault {
 
     fun interruptedWrites(context: Context): List<File> = context.filesDir.listFiles { f -> f.name.startsWith(BACKUP) }.orEmpty().toList()
 
+    /** True if the vault's `.obsidian/community-plugins.json` lists [pluginId] as enabled. */
+    fun hasObsidianPlugin(context: Context, tree: Uri, pluginId: String): Boolean = runCatching {
+        val rootId = DocumentsContract.getTreeDocumentId(tree)
+        fun childId(parentId: String, name: String): String? =
+            context.contentResolver.query(
+                DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId),
+                arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) if (c.getString(1) == name) return@use c.getString(0)
+                null
+            }
+        val obsidianDir = childId(rootId, ".obsidian") ?: return@runCatching false
+        val pluginsDoc = childId(obsidianDir, "community-plugins.json") ?: return@runCatching false
+        val json = read(context, DocumentsContract.buildDocumentUriUsingTree(tree, pluginsDoc))
+        Regex(""""${Regex.escape(pluginId)}"""").containsMatchIn(json)
+    }.getOrDefault(false)
+
     private const val BACKUP = "backup-"
 }

@@ -12,9 +12,16 @@ enum class StatusType { TODO, IN_PROGRESS, DONE, CANCELLED, NON_TASK }
 /**
  * A task line as found in a note. [file] is opaque to this file: a vault path or a SAF document URI.
  * [noteHash] fingerprints the whole note at scan time, so a writer can tell whether [line] is still exact.
+ * [heading] is the nearest Markdown heading above the task, for jumping close to it in Obsidian.
  * The other fields are parsed from [text].
  */
-data class Task(val file: String, val line: Int, val text: String, val noteHash: Int = 0) : Serializable {
+data class Task(
+    val file: String,
+    val line: Int,
+    val text: String,
+    val noteHash: Int = 0,
+    val heading: String? = null,
+) : Serializable {
     val status: Char
     val description: String
     val due: LocalDate?
@@ -29,6 +36,8 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
     val recurring: Boolean
     /** The 🆔 value, for other tasks' ⛔ to point at; null if there is none. */
     val id: String?
+    /** The Obsidian block id (`^id`) at the end of the line, without the leading `^`; null if none. */
+    val blockId: String?
     val tags: List<String>
 
     // The plugin's default statuses (todo, done, in progress, cancelled). ponytail: custom statuses from the plugin's
@@ -58,6 +67,7 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
             ?: Priority.NONE
         recurrence = fields.firstOrNull { it.groupValues[4].isNotEmpty() }?.groupValues?.get(4)?.trim()
         id = fields.firstOrNull { it.groupValues[6].isNotEmpty() }?.groupValues?.get(6)
+        blockId = BLOCK_ID.find(text.trimEnd())?.value?.trim()?.removePrefix("^")
         // Also a 🔁 the parser couldn't read: completing a recurring task here would drop its next occurrence.
         recurring = recurrence != null || "🔁" in text
         // Tags among the fields go back on the description, as in the plugin.
@@ -70,6 +80,7 @@ data class Task(val file: String, val line: Int, val text: String, val noteHash:
 // Same shape as the Obsidian Tasks plugin's task regex: indentation/blockquote, list marker, checkbox, body.
 private val TASK = Regex("""^[\s>]*([-*+]|[0-9]+[.)]) +\[(.)] *(.*)""")
 private val FENCE = Regex("""^[\s>]*(`{3,}|~{3,})""")
+private val HEADING = Regex("""^#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$""")
 private val BLOCK_ID = Regex(""" \^[A-Za-z0-9-]+$""")
 // One metadata field at the end of a task, per the plugin's DefaultTaskSerializer regexes
 // (obsidian-tasks, MIT License, Copyright (c) 2021 Clare Macrae, Ilyas Landikov and Martin Schenck).
@@ -107,14 +118,28 @@ private fun peel(text: String): Pair<String, List<MatchResult>> {
 private fun parseDate(text: String) = runCatching { LocalDate.parse(text) }.getOrNull()
 
 fun parseTasks(file: String, content: String): List<Task> = buildList {
+    val lines = content.split("\n")
     var fence: String? = null
+    var heading: String? = null
+    var inFrontmatter = lines.firstOrNull()?.removeSuffix("\r")?.trimEnd() == "---"
     // ponytail: fences only, no indented code blocks or HTML blocks; add if real vaults need them.
-    for ((i, raw) in content.split("\n").withIndex()) {
+    for ((i, raw) in lines.withIndex()) {
         val line = raw.removeSuffix("\r")
+        if (inFrontmatter) {
+            if (i > 0 && line.trimEnd().let { it == "---" || it == "..." }) inFrontmatter = false
+            continue
+        }
         val marker = FENCE.find(line)?.groupValues?.get(1)
         if (fence == null && marker != null) fence = marker
         else if (fence != null && marker != null && marker[0] == fence[0] && marker.length >= fence.length) fence = null
-        else if (fence == null && TASK.containsMatchIn(line)) add(Task(file, i, line, content.hashCode()))
+        else if (fence == null) {
+            val h = HEADING.find(line)?.groupValues?.get(1)
+            if (h != null) {
+                heading = inlineMarkdown(h).text.replace('#', ' ').replace(Regex("""\s+"""), " ").trim().ifEmpty { heading }
+            } else if (TASK.containsMatchIn(line)) {
+                add(Task(file, i, line, content.hashCode(), heading))
+            }
+        }
     }
 }
 

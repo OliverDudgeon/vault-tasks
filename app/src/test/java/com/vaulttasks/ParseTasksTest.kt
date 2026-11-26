@@ -15,8 +15,8 @@ class ParseTasksTest {
 
         assertEquals(
             listOf(
-                Task("Projects/Research.md", 1, "- [ ] Review preprint #research 🔺 📅 2026-11-02", note.hashCode()),
-                Task("Projects/Research.md", 2, "- [ ] Draft notes #research ⏳ 2026-11-03 📅 2026-11-07", note.hashCode()),
+                Task("Projects/Research.md", 1, "- [ ] Review preprint #research 🔺 📅 2026-11-02", note.hashCode(), "Research"),
+                Task("Projects/Research.md", 2, "- [ ] Draft notes #research ⏳ 2026-11-03 📅 2026-11-07", note.hashCode(), "Research"),
             ),
             parseTasks("Projects/Research.md", note),
         )
@@ -122,5 +122,27 @@ class ParseTasksTest {
 
         assertEquals(Priority.HIGHEST, task.priority)
         assertEquals(LocalDate.of(2026, 11, 1), task.due)
+    }
+
+    @Test
+    fun `tracks nearest heading and block id while ignoring frontmatter and fenced headings`() {
+        val note = """
+            ---
+            # YAML comment, not a heading
+            title: Demo
+            ---
+            - [ ] Before any heading
+            # **Top** [[Project|Plan]] ##
+            ```
+            ## Not a heading
+            ```
+            - [ ] Under top heading ^top-1  
+            ### Sub #section
+            - [ ] Under subheading
+        """.trimIndent()
+
+        val parsed = parseTasks("Demo.md", note)
+        assertEquals(listOf(null, "Top Plan", "Sub section"), parsed.map { it.heading })
+        assertEquals(listOf(null, "top-1", null), parsed.map { it.blockId })
     }
 }

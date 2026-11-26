@@ -276,6 +276,9 @@ class TasksWidget : AppWidgetProvider() {
                 paint.color(this, R.id.header_title, "setTextColor", if (overdue) R.color.widget_error else R.color.widget_primary)
                 paint.color(this, R.id.header_detail, "setTextColor", if (overdue) R.color.widget_error else R.color.widget_on_surface_variant)
                 paint.color(this, R.id.header_count, "setTextColor", R.color.widget_on_surface_variant)
+                if (group.notePath != null) {
+                    setOnClickFillInIntent(R.id.header, Intent(ACTION_OPEN).putExtra("path", group.notePath))
+                }
             }
 
         private fun row(context: Context, task: Task, path: String, look: Look, paint: Painter, today: LocalDate) =
@@ -339,8 +342,17 @@ class TasksWidget : AppWidgetProvider() {
                     setViewPadding(R.id.item, 0, px, 0, px)
                     setViewPadding(R.id.check, 10 * px, 10 * px, 10 * px, 10 * px)
                 }
-                // Tapping the task opens its note in Obsidian; tapping the checkbox completes it.
-                setOnClickFillInIntent(R.id.row, Intent(ACTION_OPEN).putExtra("path", path))
+                // Tapping the task opens its note in Obsidian (at its line, block id or heading); tapping the checkbox completes it.
+                setOnClickFillInIntent(
+                    R.id.row,
+                    Intent(ACTION_OPEN)
+                        .putExtra("path", path)
+                        .putExtra("line", task.line)
+                        .apply {
+                            if (task.blockId != null) putExtra("blockId", task.blockId)
+                            if (task.heading != null) putExtra("heading", task.heading)
+                        },
+                )
                 if (!task.done) setOnClickFillInIntent(
                     R.id.check,
                     Intent().putExtra("file", task.file).putExtra("line", task.line).putExtra("text", task.text)
@@ -403,9 +415,19 @@ class WidgetActionReceiver : BroadcastReceiver() {
         }
         if (intent.action == ACTION_OPEN) {
             val tree = Vault.tree(context) ?: return
-            // ponytail: opens the note, not the task's line; obsidian://open can't jump to a line without a plugin.
-            return runCatching { context.startActivity(Obsidian.open(tree, intent.getStringExtra("path"))) }
-                .getOrElse { toast(context, "Couldn't open Obsidian: ${it.message}") }
+            val line = intent.getIntExtra("line", -1).takeIf { it >= 0 }
+            return runCatching {
+                context.startActivity(
+                    Obsidian.open(
+                        tree = tree,
+                        path = intent.getStringExtra("path"),
+                        line = line,
+                        blockId = intent.getStringExtra("blockId"),
+                        heading = intent.getStringExtra("heading"),
+                        useAdvancedUri = Store.hasAdvancedUri(context),
+                    ),
+                )
+            }.getOrElse { toast(context, "Couldn't open Obsidian: ${it.message}") }
         }
         val pending = goAsync()
         thread {

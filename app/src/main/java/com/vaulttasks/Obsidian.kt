@@ -11,12 +11,26 @@ import android.provider.DocumentsContract
 /** The Obsidian app: opening notes in it, and when it last ran, as a stand-in for when it last synced. */
 object Obsidian {
     const val PACKAGE = "md.obsidian"
+    const val ADVANCED_URI_PLUGIN = "obsidian-advanced-uri"
 
-    /** Opens the vault [tree] at note [path] (vault-relative, with .md) if given. Obsidian names a vault after its folder. */
-    fun open(tree: Uri, path: String? = null): Intent {
+    /**
+     * Opens the vault [tree] at note [path] (vault-relative, with .md) if given. Obsidian names a vault after its folder.
+     * When [useAdvancedUri] is true and [line] (0-based) is given, uses the Advanced URI plugin to jump to that exact line;
+     * otherwise uses Obsidian's built-in subpath (`#^blockId` or `#heading`) when available.
+     */
+    fun open(
+        tree: Uri,
+        path: String? = null,
+        line: Int? = null,
+        blockId: String? = null,
+        heading: String? = null,
+        useAdvancedUri: Boolean = false,
+    ): Intent {
         val vault = DocumentsContract.getTreeDocumentId(tree).substringAfter(':').trimEnd('/').substringAfterLast('/')
-        val uri = Uri.Builder().scheme("obsidian").authority("open").appendQueryParameter("vault", vault)
-            .apply { if (path != null) appendQueryParameter("file", path) }.build()
+        val link = obsidianLink(vault, path, line, blockId, heading, useAdvancedUri)
+        val uri = Uri.Builder().scheme("obsidian").authority(link.action).apply {
+            for ((k, v) in link.params) appendQueryParameter(k, v)
+        }.build()
         return Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
@@ -48,3 +62,36 @@ fun syncState(hasAccess: Boolean, lastUsed: Long?, modified: Collection<Long>, s
     lastUsed == null -> Sync.NotRecently
     else -> modified.count { it > lastUsed + slack }.let { if (it > 0) Sync.Unsynced(it) else Sync.Synced(lastUsed) }
 }
+
+internal data class ObsidianLink(val action: String, val params: List<Pair<String, String>>)
+
+internal fun obsidianLink(
+    vault: String,
+    path: String? = null,
+    line: Int? = null,
+    blockId: String? = null,
+    heading: String? = null,
+    useAdvancedUri: Boolean = false,
+): ObsidianLink {
+    if (path != null && line != null && useAdvancedUri) {
+        return ObsidianLink(
+            "advanced-uri",
+            listOf("vault" to vault, "filepath" to stripMd(path), "line" to "${line + 1}"),
+        )
+    }
+    val file = when {
+        path == null -> null
+        !blockId.isNullOrBlank() -> "${stripMd(path)}#^$blockId"
+        !heading.isNullOrBlank() -> "${stripMd(path)}#$heading"
+        else -> path
+    }
+    return ObsidianLink(
+        "open",
+        buildList {
+            add("vault" to vault)
+            if (file != null) add("file" to file)
+        },
+    )
+}
+
+private fun stripMd(path: String) = if (path.endsWith(".md", ignoreCase = true)) path.dropLast(3) else path

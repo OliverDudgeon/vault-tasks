@@ -62,6 +62,10 @@ object Store {
 
     fun setStatus(context: Context, status: String) = prefs(context).edit().putString(STATUS, status).apply()
 
+    fun hasAdvancedUri(context: Context): Boolean = prefs(context).getBoolean("advanced_uri", false)
+
+    fun setAdvancedUri(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean("advanced_uri", enabled).apply()
+
     private fun indexFile(context: Context) = File(context.filesDir, "index.bin")
 
     // Java serialization. A changed Task class can still deserialize, leaving new fields null, so the cache is only

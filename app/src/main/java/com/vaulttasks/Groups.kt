@@ -8,8 +8,8 @@ import java.util.Locale
 /** How a widget groups its tasks. AGENDA shows only dated tasks, under the day they're due. */
 enum class GroupBy { NONE, NOTE, FOLDER, AGENDA }
 
-/** A heading and its tasks. [title] is null for the single group of [GroupBy.NONE]; [date] is the agenda day. */
-data class Group(val title: String?, val detail: String?, val tasks: List<Task>, val date: LocalDate? = null)
+/** A heading and its tasks. [title] is null for the single group of [GroupBy.NONE]; [date] is the agenda day; [notePath] is the vault path when grouped by note. */
+data class Group(val title: String?, val detail: String?, val tasks: List<Task>, val date: LocalDate? = null, val notePath: String? = null)
 
 /**
  * [tasks], already in the filter's order, in groups. Notes and folders are sorted by path, the vault's top level
@@ -20,7 +20,7 @@ fun groupTasks(tasks: List<Task>, by: GroupBy, today: LocalDate, path: (Task) ->
     return when (by) {
         GroupBy.NONE -> listOf(Group(null, null, tasks))
         GroupBy.NOTE -> tasks.groupBy(path).toSortedMap(String.CASE_INSENSITIVE_ORDER).map { (note, list) ->
-            Group(note.substringAfterLast("/").removeSuffix(".md"), note.substringBeforeLast("/", "").ifEmpty { null }, list)
+            Group(note.substringAfterLast("/").removeSuffix(".md"), note.substringBeforeLast("/", "").ifEmpty { null }, list, notePath = note)
         }
         GroupBy.FOLDER -> tasks.groupBy(::folder).toSortedMap(String.CASE_INSENSITIVE_ORDER).map { (folder, list) ->
             Group(folder.ifEmpty { "Vault root" }, null, list)
